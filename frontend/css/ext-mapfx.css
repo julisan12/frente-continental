@@ -10,11 +10,29 @@
 .fx-seledge { fill: none; stroke: #f6e7b0; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 
 /* Capas por modo: por defecto ocultas, visibles según modo */
-.fx-occ, .fx-badges, .fx-units { display: none; }
+.fx-occ, .fx-badges, .fx-units, .fx-infra { display: none; }
+.fx-b-bld { display: none; }
 .fx-plbl { display: none; }
 
-/* Modo 'res': solo insignias de recursos/edificios */
-.fx-root.m-res.z1 .fx-badges { display: inline; }
+/* Insignias: en 'res' el recurso siempre y los edificios desde z1; en otros modos solo el recurso desde z2 */
+.fx-root.m-res .fx-badges, .fx-root.z2 .fx-badges { display: inline; }
+.fx-root:not(.m-res) .fx-b-bld { display: none !important; }
+.fx-root.m-res.z1 .fx-b-bld { display: inline; }
+.fx-root:not(.m-res):not(.z2) .fx-b-res { display: none; }
+
+/* Infraestructura: z1 en todos los modos; en 'res' siempre (a zoom 1 solo trazos finos, sin simbolos) */
+.fx-root.z1 .fx-infra, .fx-root.m-res .fx-infra { display: inline; }
+.fx-root:not(.z1) .fx-inf-sym { display: none; }
+.fx-road-c, .fx-road, .fx-rail-c, .fx-rail, .fx-line-c, .fx-line { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.fx-road-c { stroke: rgba(40,26,12,.85); }
+.fx-road { stroke: #d2b06a; }
+.fx-rail-c { stroke: #20242a; }
+.fx-rail { stroke: #cfd3d8; stroke-dasharray: 3 3; stroke-linecap: butt; }
+.fx-line-c { stroke: rgba(246,236,208,.8); stroke-width: 3.2px; }
+.fx-line { stroke: #2b1d10; stroke-width: 1.7px; }
+.fx-root:not(.z1) .fx-road-c, .fx-root:not(.z1) .fx-rail-c { stroke-width: 2px; }
+.fx-root:not(.z1) .fx-road, .fx-root:not(.z1) .fx-rail { stroke-width: 1px; }
+.fx-root:not(.z1) .fx-line-c, .fx-root:not(.z1) .fx-line { display: none; }
 
 /* Modo 'war': ocupación y unidades */
 .fx-root.m-war .fx-occ { display: inline; }
@@ -26,8 +44,9 @@
 .fx-root.z2 .fx-plbl { display: inline; }
 
 .fx-sc { transform: scale(var(--ik, 1)); transform-box: fill-box; transform-origin: center; }
-.fx-ico circle { stroke: #f1e3b8; stroke-width: .5; }
-.fx-lv { font: 700 3px/1 'Inter', system-ui, sans-serif; fill: #fff; text-anchor: middle; dominant-baseline: central; }
+.fx-bsc { transform: scale(var(--bk, 1)); transform-box: fill-box; transform-origin: center; }
+.fx-more { font: 800 4.4px/1 'Inter', system-ui, sans-serif; fill: #f3e6c4; stroke: rgba(8,12,20,.85); stroke-width: .9px; paint-order: stroke; text-anchor: middle; dominant-baseline: central; }
+.fx-lv { font: 800 3px/1 'Inter', system-ui, sans-serif; fill: #fff; text-anchor: middle; dominant-baseline: central; }
 .fx-pn { font: 600 3.2px/1 Georgia, 'Times New Roman', serif; text-transform: uppercase; letter-spacing: .08em;
   fill: #2a2418; stroke: rgba(246,236,208,.85); stroke-width: .7px; paint-order: stroke; text-anchor: middle; }
 .fx-pn.cap { font-weight: 800; fill: #1a140a; }
@@ -40,6 +59,11 @@
 .fx-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%;
   background: var(--c, #6b7f4a); border: 1.5px solid #f1e3b8; color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.4);
   flex: 0 0 auto; vertical-align: middle; }
+.fx-badge.fx-hex { border: 0; border-radius: 0; box-shadow: none; background: linear-gradient(#f3e6c4,#f3e6c4);
+  clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%); position: relative; }
+.fx-badge.fx-hex::before { content: ''; position: absolute; inset: 2px; background: var(--c);
+  clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%); }
+.fx-badge.fx-hex svg { position: relative; }
 .fx-badge svg { width: 62%; height: 62%; fill: currentColor; stroke: currentColor; }
 
 /* Panel de provincia */

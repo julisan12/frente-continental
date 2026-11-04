@@ -14,6 +14,9 @@ function _amult(game, d, target) {
     let m = 1.0;
     try { m *= U.div_attack_mult(game, d, target) || 1; } catch (e) { /* neutro */ }
     try { m *= attack_logistics_mult(game, d, target) || 1; } catch (e) { /* neutro */ }
+    // Tanda 2: ataque sorpresa (bandera temporal game.ext.surprise = {by, target, mult})
+    const sp = game.ext.surprise;
+    if (sp && sp.by === d.owner && sp.target === target && sp.mult > 0) m *= sp.mult;
     return m;
 }
 function _dmult(game, d, target) {

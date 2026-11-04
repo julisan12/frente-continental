@@ -8,12 +8,14 @@ import {
   make_rng, get_rel, add_rel, at_war, enemies_of, is_alive, entities, country_index,
   land_adjacency, sync_armies, divisions_of, entity_power, territories_of,
 } from './state.js';
-import { init_prov, prov_attack, prov_build, prov_turn, prov_action, prov_lab_levels, prov_pending } from './provinces.js';
+import { init_prov, prov_attack, prov_build, prov_turn, prov_action, prov_lab_levels, prov_pending, use_game_geo } from './provinces.js';
 import * as UNITS from './units.js';
 import * as SUPPLY from './supply.js';
+import * as DIPEXT from './dipext.js';
 
-/** Modulos de Tanda 1 con interfaz estandar {init, action, turn, pending}. Orden fijo. */
-export const EXT_MODULES = [UNITS, SUPPLY];
+/** Modulos de Tanda 1 y 2 con interfaz estandar {init, action, turn, pending}. Orden fijo. */
+export const EXT_MODULES = [UNITS, SUPPLY, DIPEXT];
+const MODULE_SALT = ['units', 'supply', 'dipext'];
 
 const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
 const r2 = (x) => Math.round(x * 100) / 100;
@@ -253,14 +255,15 @@ function _bloc_ids_of(game, cid) {
 // ------------------------------------------------------------------ init
 export function init_ext(game) {
   _fixRegions();
+  try { use_game_geo(game); } catch (er) { /* geometria opcional */ }
   if (!game.ext) {
     game.ext = {
       v: 1, techs: {}, labs: {}, policy: {}, blocs: {}, pacts: [], intel: {}, spy_log: [],
       power: {}, ach: {}, prices: { cur: { cafe: 100, cobre: 100, petroleo: 100, azucar: 100, carne: 100 }, hist: [] },
       oas: [], news: [],
     };
-    const idx = country_index();
-    for (const b of Object.keys(INITIAL_BLOCS)) game.ext.blocs[b] = INITIAL_BLOCS[b].filter((i) => i in idx);
+    // Tanda 2: en el mapa "América del Sur" solo existen los paises de game.countries
+    for (const b of Object.keys(INITIAL_BLOCS)) game.ext.blocs[b] = INITIAL_BLOCS[b].filter((i) => i in game.countries);
   }
   const e = game.ext;
   for (const k of ['techs', 'labs', 'policy', 'blocs', 'intel', 'power', 'ach']) if (!e[k]) e[k] = {};
@@ -359,6 +362,7 @@ function _bordersMember(game, cid, members) {
 
 export function ext_action(game, body) {
   if (!game.ext) init_ext(game);
+  try { use_game_geo(game); } catch (er) { /* geometria opcional */ }
   if (game.ended) return err('La partida ya terminó.');
   const e = game.ext;
   const me = game.player;
@@ -592,6 +596,7 @@ function _ai_pick_tech(game, cid, rng) {
 
 export function ext_turn(game) {
   if (!game.ext) init_ext(game);
+  try { use_game_geo(game); } catch (er) { /* geometria opcional */ }
   const lines = [];
   if (game.ended) return lines;
   const e = game.ext;
@@ -777,9 +782,9 @@ export function ext_turn(game) {
     }
   }
   try { prov_turn(game, make_rng(game, 'provai'), lines); } catch (er) { /* provincias opcionales */ }
-  for (const m of EXT_MODULES) {
-    try { m.turn(game, make_rng(game, 'ext-' + (m === UNITS ? 'units' : 'supply')), lines); } catch (er) { console && console.warn && console.warn('ext module turn', er); }
-  }
+  EXT_MODULES.forEach((m, i) => {
+    try { m.turn(game, make_rng(game, 'ext-' + (MODULE_SALT[i] || i)), lines); } catch (er) { console && console.warn && console.warn('ext module turn', er); }
+  });
   void enemies_of; void entities; void is_alive;
   return lines;
 }

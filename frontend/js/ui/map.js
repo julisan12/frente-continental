@@ -7,7 +7,14 @@ import { countryPanel, countryButtons } from './country.js';
 import * as F from '../engine/features.js';
 import * as FX from './mapfx.js';
 
-const VB = { w: 500, h: 535 };
+// Tanda 2: el viewBox lo da el mapa (S.map.viewBox: 'x y w h'); 'sur' = solo America del Sur.
+const VB = { x: 0, y: 0, w: 500, h: 535 };
+function setVB(str) {
+  const n = String(str || '').trim().split(/[\s,]+/).map(Number);
+  if (n.length === 4 && n.every((v) => Number.isFinite(v)) && n[2] > 0 && n[3] > 0) { VB.x = n[0]; VB.y = n[1]; VB.w = n[2]; VB.h = n[3]; }
+  else { VB.x = 0; VB.y = 0; VB.w = 500; VB.h = 535; }
+  if (svg) svg.setAttribute('viewBox', `${VB.x} ${VB.y} ${VB.w} ${VB.h}`);
+}
 const KM_PER_UNIT = 14;
 let stage, svg, world, sheet, evBox, scaleLn, scaleTxt, geo = {}, built = null;
 let view = { k: 1, x: 0, y: 0 }, k0 = 1, minK = 0.5, maxK = 14;
@@ -170,16 +177,19 @@ function applyNow() {
 function rate() { const r = sRect(); return Math.min(r.width / VB.w, r.height / VB.h) || 1; }
 
 function clampPan() {
+  // view: world -> viewBox; con viewBox desplazado (x,y) el origen de la vista es (VB.x, VB.y)
   const m = 60;
-  view.x = clamp(view.x, VB.w - VB.w * view.k - 0 - m, m);
-  view.y = clamp(view.y, VB.h - VB.h * view.k - m, m);
+  const minX = VB.x + VB.w - (VB.x + VB.w) * view.k - m, maxX = VB.x - VB.x * view.k + m;
+  const minY = VB.y + VB.h - (VB.y + VB.h) * view.k - m, maxY = VB.y - VB.y * view.k + m;
+  view.x = clamp(view.x, Math.min(minX, maxX), Math.max(minX, maxX));
+  view.y = clamp(view.y, Math.min(minY, maxY), Math.max(minY, maxY));
 }
 
 function toLocal(cx, cy) {
   const r = sRect();
   const s = Math.min(r.width / VB.w, r.height / VB.h);
   const ox = (r.width - VB.w * s) / 2, oy = (r.height - VB.h * s) / 2;
-  return { x: (cx - r.left - ox) / s, y: (cy - r.top - oy) / s, s };
+  return { x: (cx - r.left - ox) / s + VB.x, y: (cy - r.top - oy) / s + VB.y, s };
 }
 function zoomAt(cx, cy, nk) {
   nk = clamp(nk, minK, maxK);
@@ -195,13 +205,14 @@ function centerOn(cid) {
   const g = geo[cid];
   if (!g) return fit();
   const k = Math.max(2.4, Math.min(5, 220 / Math.max(g.w, 30)));
-  view.k = k; view.x = VB.w / 2 - g.cx * k; view.y = VB.h / 2 - g.cy * k;
+  view.k = k; view.x = VB.x + VB.w / 2 - g.cx * k; view.y = VB.y + VB.h / 2 - g.cy * k;
   clampPan(); apply();
 }
 
 function build() {
   const S = getState();
   const m = S.map;
+  setVB(m.viewBox);
   geo = {};
   m.countries.forEach((c) => { geo[c.id] = parseGeo(c.path); });
   world = svgEl('g', { id: 'world' });
@@ -337,7 +348,7 @@ function btn(label, ic, fn) { return h('button', { class: 'iconbtn', 'aria-label
 
 export function mount(container) {
   stage = h('div', { class: 'map-stage' });
-  svg = svgEl('svg', { viewBox: `0 0 ${VB.w} ${VB.h}`, preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': 'Mapa político de América Latina', width: '100%', height: '100%' });
+  svg = svgEl('svg', { viewBox: `${VB.x} ${VB.y} ${VB.w} ${VB.h}`, preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': 'Mapa político de América Latina', width: '100%', height: '100%' });
   stage.append(svg);
   scaleLn = h('div', { class: 'ln' });
   scaleTxt = h('span', null, '');

@@ -1,4 +1,5 @@
 // Pantalla "Mas": noticias y eventos, partida, ajustes y ayuda.
+import { tabStrip } from './tabs.js';
 import { h, svgEl, fmtNum, toast } from '../util.js';
 import { icon } from '../icons.js';
 import { getState, setState, eventChoice, cname } from '../state.js';
@@ -217,8 +218,7 @@ const HELP = [
 export function render(el) {
   const g = getState().game;
   el.replaceChildren();
-  const tabs = h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([id, l]) =>
-    h('button', { class: 'tab', role: 'tab', 'aria-selected': String(tab === id), onclick: () => { tab = id; render(el); } }, l)));
+  const tabs = tabStrip('more', TABS, tab, (id) => { tab = id; render(el); });
   let body;
   if (tab === 'news') body = g ? news(g) : h('div', { class: 'empty' }, 'Sin partida.');
   else if (tab === 'poder') body = g ? poder(g) : h('div', { class: 'empty' }, 'Sin partida.');

@@ -5,6 +5,7 @@ import * as D from './diplomacy.js';
 import * as E from './economy.js';
 import * as S from './state.js';
 import { order_check } from './supply.js';
+import { army_check } from './dipext.js';
 
 const _has = (obj, k) => obj != null && k != null && Object.prototype.hasOwnProperty.call(obj, k);
 const _get = (obj, k, dflt) => (_has(obj, k) ? obj[k] : dflt);
@@ -227,6 +228,9 @@ export function queue_order(game, ent, otype, target = null, division_id = null,
     if (game.ext) { // Tanda 1: las ordenes economicas pueden exigir existencias (metal, combustible...)
       let why = null;
       try { why = order_check(game, ent, otype, params); } catch (e) { why = null; }
+      if (why) throw new OrderError(why);
+      // Tanda 2: limite/capacidad del ejercito (dipext.army_check)
+      try { why = army_check(game, ent, otype, params); } catch (e) { why = null; }
       if (why) throw new OrderError(why);
     }
   }

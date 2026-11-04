@@ -1,4 +1,5 @@
 // Pantalla de Economia: gestion, industria, infraestructura, presupuesto, estabilidad.
+import { tabStrip } from './tabs.js';
 import { h, fmtNum, fmtDec, fmtMoney, fmtSigned, deltaClass, COSTS, PROJECT_KIND, clamp, toast } from '../util.js';
 import { icon } from '../icons.js';
 import * as ST from '../state.js';
@@ -392,8 +393,7 @@ export function render(el) {
   const d = flat(detail(me));
   if (tab !== 'presupuesto' || draftGame !== S.game.id) draft = null;
   draftGame = S.game.id;
-  const tabs = h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([id, l]) =>
-    h('button', { class: 'tab', role: 'tab', 'aria-selected': String(tab === id), onclick: () => { tab = id; render(el); } }, l)));
+  const tabs = tabStrip('economy', TABS, tab, (id) => { tab = id; render(el); });
   const body = { gestion, suministro, industria, infra, presupuesto, estabilidad, politica, investigacion }[tab];
   el.append(h('h2', null, 'Economía'), tabs, h('div', { class: 'stack' }, body(c, d)));
 }

@@ -40,6 +40,15 @@ function hash(s) { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^=
 
 // ------------------------------------------------------------------ geometria estatica
 let _geo = null;
+/**
+ * Tanda 2 (trabajador A): selecciona la geometria de provincias que corresponde a la partida
+ * (variante de mapa game.variant 'latam'|'sur' y densidad game.ext.geo.density 1|2). Las partidas
+ * antiguas (sin game.ext.geo) deben seguir usando la geometria original (densidad 1). Debe ser barata
+ * (se llama en cada accion/turno) y mantener prov_geo() coherente con ella.
+ */
+export function use_game_geo(game) {
+  void game; // stub: el trabajador A lo implementa
+}
 /** Lista estatica de provincias: {pid, c, i, n, t, x, y} + vecinos. */
 export function prov_geo() {
   if (_geo) return _geo;

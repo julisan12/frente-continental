@@ -1,4 +1,5 @@
 // Pantalla de Diplomacia.
+import { tabStrip } from './tabs.js';
 import { h, fmtMoney, ALIGN, MONEY_SCALE, SEND_MIN, SEND_DEFAULT, toast } from '../util.js';
 import { icon } from '../icons.js';
 import { getState, setState, player, cname, ownerOf, relation, isAtWar, partners, sendOrder, loadDetail, detail } from '../state.js';
@@ -224,8 +225,7 @@ function espionaje(el) {
 export function render(el) {
   el.replaceChildren();
   if (!getState().game) return;
-  const tabs = h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([id, l]) =>
-    h('button', { class: 'tab', role: 'tab', 'aria-selected': String(tab === id), onclick: () => { tab = id; render(el); } }, l)));
+  const tabs = tabStrip('diplomacy', TABS, tab, (id) => { tab = id; render(el); });
   let body;
   if (tab === 'dip') body = target(el);
   else if (tab === 'ali') body = treatyList(['alliance'], true);

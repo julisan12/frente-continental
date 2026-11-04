@@ -45,12 +45,12 @@ const window_ = (x, y, w = 3, h = 3) => R(x, y, w, h, GO, 'stroke-width=".7"');
 /** Frase corta por edificio y nivel (para pies de foto). */
 export const BUILDING_LEVEL_DESC = {
   base: ['Solar con estacas', 'Tienda de campaña', 'Barracón con bandera', 'Cuartel con torre y hangar'],
-  fabrica: ['Solar con estacas', 'Nave con una chimenea', 'Dos naves, chimenea con humo y depósito', 'Tres naves, dos chimeneas, tanque y cinta'],
+  taller: ['Solar con estacas', 'Nave con una chimenea', 'Dos naves, chimenea con humo y depósito', 'Tres naves, dos chimeneas, tanque y cinta'],
   refineria: ['Solar con estacas', 'Un tanque de crudo', 'Tanques y torre de destilación', 'Complejo con antorcha encendida'],
   mina: ['Solar con estacas', 'Pozo con montón de mineral', 'Castillete con polea', 'Castillete con vagonetas y cobertizo'],
   granja: ['Solar con estacas', 'Cabaña con surcos', 'Cabaña con silo', 'Dos silos y tractor'],
   lab: ['Solar con estacas', 'Caseta con antena', 'Edificio con cúpula', 'Campus con radar'],
-  carretera: ['Solar con estacas', 'Camino de tierra', 'Asfalto con líneas', 'Autopista con puente'],
+  avenida: ['Solar con estacas', 'Camino de tierra', 'Asfalto con líneas', 'Autopista con puente'],
   ferrocarril: ['Solar con estacas', 'Vía sencilla', 'Vía con estación', 'Doble vía con locomotora'],
   fuerte: ['Solar con estacas', 'Muro con torre', 'Bastión estrellado', 'Fortaleza con dos torres y bandera'],
   linea: ['Solar con estacas', 'Trinchera', 'Trinchera con alambre de púas', 'Búnkeres de hormigón'],
@@ -74,7 +74,7 @@ const BDRAW = {
       + R(33, 20, 10, 32, WALL2) + R(31, 16, 14, 6, WALL) + R(33, 12, 3, 4, WALL) + R(40, 12, 3, 4, WALL) + window_(36, 28) + window_(36, 37) + flag(38, 12, RU)
       + P('M46 52 V44 Q53 35 60 44 V52Z', STEEL) + P('M49 52 V47 Q53 42 57 47 V52Z', DARK) + L(46, 44, 60, 44, K, .8) + NC(18, 41, 1, GO);
   },
-  fabrica(l) {
+  taller(l) {
     if (l === 1) return R(12, 34, 30, 18, CONC) + P('M12 34 l5 -5 v5 l5 -5 v5 l5 -5 v5 l5 -5 v5 l5 -5 v10z', WALL2) + R(36, 16, 6, 22, '#8a5a46') + R(35, 14, 8, 3, WALL2)
       + R(17, 42, 8, 10, DARK) + window_(29, 38) + window_(35, 38) + smoke(39, 12, .7);
     if (l === 2) return R(6, 36, 24, 16, CONC) + P('M6 36 l5 -5 v5 l5 -5 v5 l5 -5 v5 l5 -5 v5 l3 -3 v8z', WALL2) + R(30, 32, 18, 20, '#b0a994') + P('M29 32 L39 26 L49 32Z', ROOF)
@@ -123,7 +123,7 @@ const BDRAW = {
       + R(30, 28, 14, 24, '#b0a994') + R(28, 25, 18, 4, WALL2) + window_(33, 33) + window_(39, 33) + window_(33, 40) + window_(39, 40) + dome(37, 25, 6)
       + R(50, 36, 3, 16, STEEL2) + P('M44 28 Q54 18 62 30 L53 33Z', STEEL) + L(53, 33, 53, 37, K, 1.2) + NC(50, 26, 1.2, RU) + NC(10, 38, 1, GO);
   },
-  carretera(l) {
+  avenida(l) {
     if (l === 1) return P('M4 56 L26 20 L38 20 L60 56Z', DIRT) + P('M26 20 L38 20 L42 26 L22 26Z', '#6f5a3c', 'stroke="none"') + [[30, 52], [38, 46], [26, 40], [34, 35], [32, 28]].map(([x, y]) => E(x, y, 1.8, 1, '#5d4a32', 'stroke-width=".6"')).join('')
       + L(16, 45, 12, 52, '#5b6a30', 1.4) + L(48, 45, 52, 52, '#5b6a30', 1.4) + E(10, 47, 3, 2, GRASS, 'stroke="none"') + E(54, 46, 3.5, 2.2, GRASS, 'stroke="none"');
     if (l === 2) return P('M2 58 L26 18 L38 18 L62 58Z', '#6a6d6e') + P('M2 58 L5 58 L27 18 L26 18Z', CONC, 'stroke="none"') + P('M62 58 L59 58 L37 18 L38 18Z', CONC, 'stroke="none"')

@@ -19,7 +19,7 @@ export const RES_ICON = { petroleo: 'res_oil', gas: 'res_gas', minerales: 'res_m
 export const SUP_ICON = { food: 'wheat', fuel: 'fire', goods: 'box', metal: 'ingot' };
 export const SUP_NAME = { food: 'Alimentos', fuel: 'Combustible', goods: 'Bienes', metal: 'Metal' };
 export const INFRA_LEGEND = [['#c9a866', 'Carretera'], ['#3a3f46', 'Ferrocarril'], ['#6b5a45', 'Fortaleza'], ['#2b1d10', 'Línea defensiva']];
-export const BUILD_COLOR = { base: '#7a2e2a', fabrica: '#5a6470', refineria: '#c98a2a', mina: '#6e5a48', granja: '#5b8a32' };
+export const BUILD_COLOR = { base: '#7a2e2a', taller: '#5a6470', refineria: '#c98a2a', mina: '#6e5a48', granja: '#5b8a32', aeropuerto: '#3f7a80', puerto: '#3f6a9a', hospital: '#9a4a5a', radar: '#5a6a3a', capital: '#b8975a', labc: '#6a4a8a' };
 const TCODES = Object.keys(ELEV);
 const reduced = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
 
@@ -351,7 +351,7 @@ function drawLayers(game, S) {
   drawSel();
 }
 
-const INFRA_KEYS = new Set(['carretera', 'ferrocarril', 'fuerte', 'linea']);
+const INFRA_KEYS = new Set(['avenida', 'ferrocarril', 'fuerte', 'linea']);
 function clipFor(cid) {
   const id = 'fxc-' + cid;
   if (!defsR.querySelector('#' + CSS.escape(id))) defsR.append(svgEl('clipPath', { id }, svgEl('path', { d: pathOf(cid) })));
@@ -368,7 +368,7 @@ function drawInfra(pr, geo, cells) {
     const st = pr[p.pid]; if (!st || !st.b) continue;
     const b = st.b, S = slot(p.c);
     // trazos hacia el punto medio de cada vecina conectada (cada provincia dibuja su mitad)
-    for (const [key, dst] of [['carretera', S.road], ['ferrocarril', S.rail]]) {
+    for (const [key, dst] of [['avenida', S.road], ['ferrocarril', S.rail]]) {
       const l0 = b[key] || 0; if (l0 < 1) continue;
       let any = false;
       for (const q of adj[p.pid] || []) {

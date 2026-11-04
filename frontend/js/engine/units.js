@@ -19,40 +19,41 @@ import { queue_order, OrderError } from './orders.js';
 import { stock_of } from './supply.js';
 import { prov_geo, prov_yield, prov_targets } from './provinces.js';
 import { army_check } from './dipext.js';
+import { ROSTER, MIGRATE_KIND, soil_mods } from './roster.js';
 
-/** Catalogo de tipos de unidad. icon = nombre en icons.js ICON_PATHS; color para el mapa. */
-export const UNIT_TYPES = {
-  inf: { name: 'Infantería', icon: 'infantry', color: '#7b8a4a', troops: 12, tanks: 0, planes: 0, cost: 80, tech: null, needs: {},
-    atk: 1.0, def: 1.15, desc: 'Columna vertebral del ejército: barata, sólida en defensa y en terreno difícil.' },
-  mot: { name: 'Infantería motorizada', icon: 'truck', color: '#8a7a4a', troops: 10, tanks: 2, planes: 0, cost: 120, tech: 'arm1', needs: { fuel: 2 },
-    atk: 1.1, def: 1.0, desc: 'Camiones y transportes: más rápida y con pegada en llanura.' },
-  arm: { name: 'Blindados', icon: 'tank', color: '#5a6470', troops: 6, tanks: 6, planes: 0, cost: 170, tech: 'arm2', needs: { metal: 6, fuel: 4 },
-    atk: 1.35, def: 1.0, desc: 'Punta de lanza en pampa y sabana; sufre en selva y montaña.' },
-  art: { name: 'Artillería', icon: 'artillery', color: '#8a5a3a', troops: 6, tanks: 1, planes: 0, cost: 130, tech: 'art1', needs: { metal: 4 },
-    atk: 1.25, def: 0.8, desc: 'Fuego de apoyo que ablanda fortificaciones. Frágil si queda sola.' },
-  mtn: { name: 'Cazadores de montaña', icon: 'mountain', color: '#6b5a45', troops: 10, tanks: 0, planes: 0, cost: 110, tech: 'inf2', needs: {},
-    atk: 1.05, def: 1.1, desc: 'Especialistas en montaña y altiplano.' },
-  mar: { name: 'Infantería de marina', icon: 'anchor', color: '#4f7a9a', troops: 9, tanks: 0, planes: 0, cost: 130, tech: 'inf3', needs: { fuel: 1 },
-    atk: 1.1, def: 1.0, desc: 'Sin penalización por desembarco marítimo.' },
-  air: { name: 'Aviación táctica', icon: 'plane', color: '#4a9a8f', troops: 2, tanks: 0, planes: 4, cost: 200, tech: 'air1', needs: { fuel: 6, metal: 4 },
-    atk: 1.3, def: 0.9, desc: 'Rápida y letal; exige combustible cada turno.' },
-  esp: { name: 'Fuerzas especiales', icon: 'star', color: '#8a5a9a', troops: 5, tanks: 0, planes: 0, cost: 160, tech: 'inf4', needs: {},
-    atk: 1.4, def: 1.0, desc: 'Comandos de élite: golpes decisivos y menos descontento en la ocupación.' },
-};
+// Tanda 3: el catálogo vive en roster.js (ROSTER). UNIT_TYPES se mantiene como alias por compatibilidad.
+export { ROSTER, KINDS, CLASS_NAME, MIGRATE_KIND, soil_mods, lookup, TERRAIN_GROUP, SOIL_NAME, SOIL_MODS } from './roster.js';
+export const UNIT_TYPES = ROSTER;
 
-/** Tipo de una division (si falta `kind`, se infiere por el nombre). */
+/** Tipo de una division (si falta `kind` o es un tipo antiguo, se infiere/migra). */
 export function kind_of(d) {
-  if (d.kind && UNIT_TYPES[d.kind]) return d.kind;
+  if (d.kind && ROSTER[d.kind]) return d.kind;
+  if (d.kind && MIGRATE_KIND[d.kind]) return MIGRATE_KIND[d.kind];
   const n = String(d.name || '');
-  if (/Blindad/i.test(n)) return 'arm';
-  if (/Aerotransport|Aérea|Aerea/i.test(n)) return 'air';
-  if (/Motorizad|Mecanizad|Caballer/i.test(n)) return 'mot';
+  if (/Blindad/i.test(n)) return 'tl';
+  if (/Aerotransport|Aérea|Aerea/i.test(n)) return 'caza';
+  if (/Motorizad|Mecanizad|Caballer/i.test(n)) return 'mec';
   if (/Artiller/i.test(n)) return 'art';
-  if (/Montaña|Montana/i.test(n)) return 'mtn';
-  if (/Marina/i.test(n)) return 'mar';
-  if (/Especial/i.test(n)) return 'esp';
+  if (/Especial|élite|elite/i.test(n)) return 'elite';
   return 'inf';
 }
+
+// ---- Ganchos de la Tanda 3 (trabajador A los implementa; firmas estables, usadas por military/orders/provinces) ----
+/** Multiplicador de pérdidas de la división d frente a las divisiones `opp` (emparejamientos: tp ×4 ante at/elite/bomb,
+ *  artillería a distancia atacando → 0, fortaleza, suelo). attacking = true si d es atacante. */
+export function loss_mult(game, d, opp, attacking) { void game; void d; void opp; void attacking; return 1.0; }
+/** false si la división no puede atacar ni defender (en carga, recarga, marcha). */
+export function can_act(game, d) { void game; return !(d && (d.st === 'recarga' || d.st === 'carga' || d.st === 'marcha')); }
+/** Motivo (string) por el que la división no puede recibir la orden `type` (move|attack|defend|front|reorganize), o null. */
+export function order_check_div(game, d, type, target) { void game; void d; void type; void target; return null; }
+/** Motivo por el que `ent` no puede producir `kind` en la provincia `pid` (tecnología, edificios, recursos, capacidad), o null. */
+export function recruit_check(game, ent, kind, pid) { void game; void ent; void kind; void pid; return null; }
+/** Cola de producción de `cid`: [{id, kind, pid, left, total}]. */
+export function prod_queue(game, cid) { const q = game.ext && game.ext.prodq && game.ext.prodq[cid]; return Array.isArray(q) ? q : []; }
+/** Poder de ataque de `ent` contra la provincia `pid` (suelo por clase, estados); null = usar el cálculo clásico. */
+export function prov_strike_power(game, ent, pid) { void game; void ent; void pid; return null; }
+/** Aviso de movimiento de una división (ferrocarril «en carga», unidades lentas «en marcha», avenidas). */
+export function on_move(game, d, from, to) { void game; void d; void from; void to; }
 
 // ------------------------------------------------------------------ interfaz estandar
 export function init(game) {
@@ -62,8 +63,9 @@ export function init(game) {
   ensure(game.ext, 'loot', () => []);
   // Inferir y persistir kinds de todas las divisiones existentes
   for (const d of game.divisions || []) {
-    if (!d.kind) d.kind = kind_of(d);
+    if (!d.kind || !ROSTER[d.kind]) d.kind = kind_of(d);
   }
+  ensure(game.ext, 'prodq', () => ({}));
 }
 
 /** Acciones del jugador. Devuelve null si la accion no es de este modulo. */
@@ -80,11 +82,7 @@ export function action(game, body) {
     // Validar tecnología requerida
     if (ut.tech && game.ext && game.ext.techs && game.ext.techs[me]) {
       if (!game.ext.techs[me].done.includes(ut.tech)) {
-        const techNames = { inf1:'Doctrina de fusileros', inf2:'Guerra de montaña y selva', inf3:'Movilización de reservas', inf4:'Fuerzas especiales',
-          arm1:'Motorización', arm2:'Carros medios', arm3:'Blindaje compuesto', arm4:'Guerra de maniobra',
-          art1:'Artillería de campaña', art2:'Control de fuego', art3:'Cohetes de saturación', art4:'Defensa antiaérea',
-          air1:'Cazas a reacción', air2:'Radar y alerta temprana', air3:'Bombarderos tácticos', air4:'Supremacía aérea' };
-        return err(`Requiere la tecnología: ${techNames[ut.tech] || ut.tech}.`);
+        return err(`Requiere la tecnología: ${ut.tech}.`);
       }
     }
     const acheck = army_check(game, me, 'unit_recruit', { troops: ut.troops });
@@ -115,9 +113,7 @@ export function action(game, body) {
     // Crear división
     const count = (game.divisions || []).filter(d => d.owner === me && d.kind === kind).length + 1;
     const ordinal = ['', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª', '7ª', '8ª', '9ª', '10ª', '11ª', '12ª', '13ª', '14ª', '15ª'][count] || count + 'ª';
-    const nameMap = { inf:'División de Infantería', mot:'División Motorizada', arm:'Brigada Blindada', art:'Regimiento de Artillería',
-      mtn:'Batallón de Montaña', mar:'Infantería de Marina', air:'Ala Aérea', esp:'Fuerzas Especiales' };
-    const name = ordinal + ' ' + (nameMap[kind] || 'División');
+    const name = ordinal + ' ' + ut.name;
     const div = {
       id: next_id(game, 'd'), name, owner: me, location, kind,
       troops: ut.troops, tanks: ut.tanks, planes: ut.planes,
@@ -187,7 +183,7 @@ export function turn(game, rng, lines) {
 
   // Inferir y persistir kinds de todas las divisiones
   for (const d of game.divisions || []) {
-    if (!d.kind) d.kind = kind_of(d);
+    if (!d.kind || !ROSTER[d.kind]) d.kind = kind_of(d);
   }
 
   // IA recluta tipos variados
@@ -262,7 +258,7 @@ export function turn(game, rng, lines) {
     // Reducción si están en paz con el país original
     if (originalAlive && !at_war(game, p.o, p.c)) u -= 1;
     // Reducción si hay divisiones 'esp' del ocupante en el país
-    const hasEsp = (game.divisions || []).some(d => d.owner === p.o && d.location === p.c && d.kind === 'esp');
+    const hasEsp = (game.divisions || []).some(d => d.owner === p.o && d.location === p.c && kind_of(d) === 'elite');
     if (hasEsp) u -= 2;
     unrest[pid] = Math.max(0, Math.min(100, Math.round(u * 10) / 10));
 
@@ -353,16 +349,12 @@ export function pending(game) {
 
 // ------------------------------------------------------------------ ganchos
 /** Tabla de modificadores de terreno y emparejamientos (para la UI). */
-export const MODS = {
-  inf: { terr: { S: 1.1, B: 1.1, T: 1.1 }, desc: 'Sólida en selva, bosque y tropical defendiendo' },
-  mot: { terr: { P: 1.15, V: 1.15, E: 1.1 }, desc: 'Rápida en pampa, sabana y estepa' },
-  arm: { terr: { P: 1.25, V: 1.25, E: 1.25, D: 1.2, S: 0.7, M: 0.7, A: 0.7 }, desc: 'Excelente en llanuras; sufre en selva, montaña y altiplano' },
-  art: { terr: { S: 0.9 }, desc: 'Penalización leve en selva; bono contra fortalezas' },
-  mtn: { terr: { M: 1.3, A: 1.3, S: 1.1 }, desc: 'Especialista en montaña, altiplano y selva' },
-  mar: { terr: {}, desc: 'Sin penalización por desembarco marítimo' },
-  air: { terr: { S: 0.85, D: 1.1, P: 1.1 }, desc: 'Penalización en selva; bono en desierto y pampa' },
-  esp: { terr: {}, desc: 'Élite: bono en todo combate y reduce descontento' },
-};
+export const MODS = {};
+for (const k of Object.keys(ROSTER)) {
+  const terr = {};
+  for (const t of ['S', 'M', 'D', 'P', 'V', 'B', 'E', 'T', 'A']) { const m = soil_mods(k, t); if (m.atk !== 1) terr[t] = m.atk; }
+  MODS[k] = { terr, desc: ROSTER[k].desc };
+}
 
 /** Multiplicador de ataque de una division contra el territorio `target` (tipo + terreno). */
 export function div_attack_mult(game, d, target) {
@@ -370,7 +362,7 @@ export function div_attack_mult(game, d, target) {
   const kind = d.kind || kind_of(d);
   const ut = UNIT_TYPES[kind];
   if (!ut) return 1.0;
-  let m = ut.atk;
+  let m = ut.atk / 4;
 
   // Terreno dominante del país objetivo
   const terrainType = _dominant_terrain(game, target);
@@ -378,7 +370,7 @@ export function div_attack_mult(game, d, target) {
   m *= modT || 1.0;
 
   // Compensar penalización marítima para marina
-  if (kind === 'mar' && is_sea_route(d.location, target)) {
+  if (ut.cls === 'nav' && is_sea_route(d.location, target)) {
     m *= 1.33; // Compensa SEA_PENALTY 25%
   }
 
@@ -405,7 +397,7 @@ export function div_defense_mult(game, d, target) {
   const kind = d.kind || kind_of(d);
   const ut = UNIT_TYPES[kind];
   if (!ut) return 1.0;
-  let m = ut.def;
+  let m = ut.def / 5;
 
   const terrainType = _dominant_terrain(game, target);
   const modT = MODS[kind] && MODS[kind].terr ? MODS[kind].terr[terrainType] : 1.0;
@@ -450,7 +442,7 @@ export function on_capture(game, attacker, target, old_owner) {
 }
 
 const RES_TO_STOCK = { petroleo: 'fuel', gas: 'fuel', minerales: 'metal', cobre: 'metal', agro: 'food', madera: 'goods' };
-const BUILD_TO_STOCK = [['refineria', 'fuel'], ['mina', 'metal'], ['granja', 'food'], ['fabrica', 'goods']];
+const BUILD_TO_STOCK = [['refineria', 'fuel'], ['mina', 'metal'], ['granja', 'food'], ['taller', 'goods']];
 export const RES_LABEL = { food: 'alimentos', fuel: 'combustible', goods: 'bienes', metal: 'metal' };
 const P_RES = { petroleo: 'petróleo', gas: 'gas', minerales: 'minerales', cobre: 'cobre', agro: 'cultivos', madera: 'madera' };
 const _m10 = (m) => Math.round(m * 10);
@@ -460,8 +452,8 @@ function _loot_calc(game, pid, owner) {
   const p = game.ext && game.ext.prov && game.ext.prov[pid];
   if (!p) return null;
   const b = p.b || {};
-  const econ = (b.fabrica || 0) + (b.refineria || 0) + (b.mina || 0) + (b.granja || 0);
-  const fixed = 15 + 8 * econ + 4 * ((b.carretera || 0) + (b.ferrocarril || 0)) + (p.cap ? 20 : 0);
+  const econ = (b.taller || 0) + (b.refineria || 0) + (b.mina || 0) + (b.granja || 0);
+  const fixed = 15 + 8 * econ + 4 * ((b.avenida || 0) + (b.ferrocarril || 0)) + (p.cap ? 20 : 0);
   const ownerMoney = Math.max(0, (game.countries[owner] && game.countries[owner].money) || 0);
   const fromOwner = ownerMoney * 0.06;
   const yld = prov_yield(game, pid);
@@ -534,7 +526,7 @@ export function on_prov_capture(game, attacker, pid, old_owner) {
   // Inicializar descontento
   let unrest = 35;
   if (p.cap) unrest += 15;
-  const hasEsp = (game.divisions || []).some(d => d.owner === attacker && d.location === p.c && d.kind === 'esp');
+  const hasEsp = (game.divisions || []).some(d => d.owner === attacker && d.location === p.c && kind_of(d) === 'elite');
   if (hasEsp) unrest -= 10;
   if (!game.ext.unrest) game.ext.unrest = {};
   game.ext.unrest[pid] = Math.max(0, Math.min(100, unrest));

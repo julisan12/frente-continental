@@ -12,15 +12,22 @@ import { init_prov, prov_attack, prov_build, prov_turn, prov_action, prov_lab_le
 import * as UNITS from './units.js';
 import * as SUPPLY from './supply.js';
 import * as DIPEXT from './dipext.js';
+import * as AERO from './aero.js';
+import { prov_labc_level } from './provinces.js';
 
-/** Modulos de Tanda 1 y 2 con interfaz estandar {init, action, turn, pending}. Orden fijo. */
-export const EXT_MODULES = [UNITS, SUPPLY, DIPEXT];
-const MODULE_SALT = ['units', 'supply', 'dipext'];
+/** Modulos de Tanda 1, 2 y 3 con interfaz estandar {init, action, turn, pending}. Orden fijo. */
+export const EXT_MODULES = [UNITS, SUPPLY, DIPEXT, AERO];
+const MODULE_SALT = ['units', 'supply', 'dipext', 'aero'];
 
 const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
 const r2 = (x) => Math.round(x * 100) / 100;
 
 // ------------------------------------------------------------------ catalogos
+// Arbol de tecnologias. Campos: id, name, branch, cost (puntos), req (ids previos), lab (nivel del laboratorio nacional),
+// labc (Tanda 3: nivel minimo de Laboratorio central en alguna provincia propia), desc, fx (efectos puntuales al completar).
+// Las ramas de la Tanda 3 (unidades, edificios, moral, espionaje, misiles) desbloquean unidades (roster.tech/up) y edificios (BUILD.tech).
+export const BRANCHES = [['inf', 'Infantería'], ['arm', 'Blindados'], ['art', 'Artillería'], ['air', 'Aviación'], ['nav', 'Marina'],
+  ['mis', 'Misiles y ojivas'], ['bld', 'Edificios'], ['mor', 'Moral'], ['esp', 'Espionaje'], ['eco', 'Economía']];
 export const TECHS = [
   // Infanteria
   { id: 'inf1', name: 'Doctrina de fusileros', branch: 'inf', cost: 2, req: [], lab: 0,
@@ -30,34 +37,86 @@ export const TECHS = [
   { id: 'inf3', name: 'Movilización de reservas', branch: 'inf', cost: 5, req: ['inf2'], lab: 1,
     desc: 'Registro y entrenamiento de reservistas. +8% de efectivos y +1 de estabilidad.', fx: { def: 0.08, stab: 1 } },
   { id: 'inf4', name: 'Fuerzas especiales', branch: 'inf', cost: 7, req: ['inf3'], lab: 2,
-    desc: 'Comandos de élite para operaciones decisivas. +10% de ataque.', fx: { atk: 0.10 } },
+    desc: 'Comandos para operaciones decisivas. +10% de ataque.', fx: { atk: 0.10 } },
+  { id: 'inf_e1', name: 'Exploración I', branch: 'inf', cost: 2, req: [], lab: 0, desc: 'Mejora el pelotón de exploración: +10% de ataque, defensa y vida.', fx: {} },
+  { id: 'inf_e2', name: 'Exploración II', branch: 'inf', cost: 3, req: ['inf_e1'], lab: 0, desc: 'Radios y prismáticos: +10% más al pelotón de exploración.', fx: {} },
+  { id: 'inf_e3', name: 'Exploración III', branch: 'inf', cost: 4, req: ['inf_e2'], lab: 1, desc: 'Patrullas de largo alcance: +10% más al pelotón de exploración.', fx: {} },
+  { id: 'inf_i1', name: 'Infantería I', branch: 'inf', cost: 2, req: ['inf1'], lab: 0, desc: 'Fusiles automáticos: +10% al pelotón de infantería.', fx: {} },
+  { id: 'inf_i2', name: 'Infantería II', branch: 'inf', cost: 3, req: ['inf_i1'], lab: 0, desc: 'Morteros de pelotón: +10% más al pelotón de infantería.', fx: {} },
+  { id: 'inf_i3', name: 'Infantería III', branch: 'inf', cost: 5, req: ['inf_i2'], lab: 1, desc: 'Chalecos y radios: +10% más al pelotón de infantería.', fx: {} },
+  { id: 'mec1', name: 'Infantería mecanizada', branch: 'inf', cost: 3, req: ['arm1'], lab: 0, desc: 'Semiorugas para la tropa: desbloquea la infantería mecanizada (requiere taller).', fx: {} },
+  { id: 'mec_u1', name: 'Mecanizada I', branch: 'inf', cost: 4, req: ['mec1'], lab: 0, desc: '+10% a la infantería mecanizada.', fx: {} },
+  { id: 'mec_u2', name: 'Mecanizada II', branch: 'inf', cost: 6, req: ['mec_u1'], lab: 1, desc: '+10% más a la infantería mecanizada.', fx: {} },
+  { id: 'elite', name: 'Escuadrón de élite', branch: 'inf', cost: 7, req: ['inf4'], lab: 2, labc: 1, desc: 'Boinas: desbloquea el escuadrón de élite. Requiere Laboratorio central.', fx: {} },
+  { id: 'elite_u1', name: 'Élite: movilidad', branch: 'inf', cost: 5, req: ['elite'], lab: 2, desc: 'Transporte dedicado: el escuadrón de élite gana +1 de velocidad y +10%.', fx: {} },
+  { id: 'elite_u2', name: 'Élite: veteranía', branch: 'inf', cost: 6, req: ['elite_u1'], lab: 2, desc: '+10% más al escuadrón de élite.', fx: {} },
   // Blindados
   { id: 'arm1', name: 'Motorización', branch: 'arm', cost: 3, req: [], lab: 0,
     desc: 'Camiones y transportes para la tropa. +5% de ataque de los blindados.', fx: { atk: 0.05 } },
+  { id: 'arm_apc', name: 'APC', branch: 'arm', cost: 3, req: ['arm1'], lab: 0, desc: 'Carros blindados de transporte: desbloquea el APC (requiere taller).', fx: {} },
+  { id: 'arm_at', name: 'Antitanque', branch: 'arm', cost: 4, req: ['arm_apc'], lab: 0, desc: 'Cañones sobre semioruga: desbloquea el antitanque.', fx: {} },
+  { id: 'arm_tl', name: 'Tanque ligero', branch: 'arm', cost: 4, req: ['arm_apc'], lab: 0, desc: 'Desbloquea el tanque ligero (requiere taller nivel 2).', fx: {} },
   { id: 'arm2', name: 'Carros medios', branch: 'arm', cost: 4, req: ['arm1'], lab: 0,
     desc: 'Tanques de segunda generación. +6% de ataque y +3% de defensa.', fx: { atk: 0.06, def: 0.03 } },
+  { id: 'arm_tm', name: 'Tanque mediano', branch: 'arm', cost: 6, req: ['arm_tl', 'arm2'], lab: 1, desc: 'Desbloquea el tanque mediano (requiere taller nivel 3).', fx: {} },
   { id: 'arm3', name: 'Blindaje compuesto', branch: 'arm', cost: 6, req: ['arm2'], lab: 1,
     desc: 'Mejor protección para las tripulaciones. +8% de defensa.', fx: { def: 0.08 } },
+  { id: 'arm_tp', name: 'Tanque pesado', branch: 'arm', cost: 9, req: ['arm_tm', 'arm3'], lab: 2, labc: 2, desc: 'Desbloquea el tanque pesado (requiere fábrica). Exige Laboratorio central nivel 2.', fx: {} },
   { id: 'arm4', name: 'Guerra de maniobra', branch: 'arm', cost: 8, req: ['arm3'], lab: 2,
     desc: 'Doctrina de penetración profunda. +10% de ataque.', fx: { atk: 0.10 } },
   // Artilleria
   { id: 'art1', name: 'Artillería de campaña', branch: 'art', cost: 2, req: [], lab: 0,
-    desc: 'Obuses estandarizados y municiones. +5% de ataque.', fx: { atk: 0.05 } },
+    desc: 'Obuses estandarizados: desbloquea el cañón de artillería. +5% de ataque.', fx: { atk: 0.05 } },
   { id: 'art2', name: 'Control de fuego', branch: 'art', cost: 4, req: ['art1'], lab: 0,
-    desc: 'Observadores y cálculo de tiro. +4% de ataque y +4% de defensa.', fx: { atk: 0.04, def: 0.04 } },
+    desc: 'Observadores y cálculo de tiro: +10% al cañón de artillería, +4% de ataque y defensa.', fx: { atk: 0.04, def: 0.04 } },
   { id: 'art3', name: 'Cohetes de saturación', branch: 'art', cost: 6, req: ['art2'], lab: 1,
-    desc: 'Lanzacohetes múltiples. +8% de ataque.', fx: { atk: 0.08 } },
+    desc: 'Lanzacohetes múltiples: +10% más al cañón de artillería y +8% de ataque.', fx: { atk: 0.08 } },
   { id: 'art4', name: 'Defensa antiaérea', branch: 'art', cost: 7, req: ['art3'], lab: 2,
     desc: 'Baterías contra aviones. +10% de defensa.', fx: { def: 0.10 } },
+  { id: 'art_cfort', name: 'Cañón de fortaleza', branch: 'art', cost: 4, req: ['art1'], lab: 0, desc: 'Piezas fijas de gran calibre: desbloquea el cañón de fortaleza (requiere fortaleza).', fx: {} },
+  { id: 'art_cnav', name: 'Cañón naval', branch: 'art', cost: 5, req: ['art1', 'nav1'], lab: 0, desc: 'Baterías de costa: desbloquea el cañón naval (requiere puerto).', fx: {} },
   // Aviacion
   { id: 'air1', name: 'Cazas a reacción', branch: 'air', cost: 3, req: [], lab: 0,
-    desc: 'Primera flota de reacción. +5% de ataque aéreo.', fx: { atk: 0.05 } },
+    desc: 'Primera flota de reacción: desbloquea el caza (requiere aeropuerto). +5% de ataque aéreo.', fx: { atk: 0.05 } },
   { id: 'air2', name: 'Radar y alerta temprana', branch: 'air', cost: 4, req: ['air1'], lab: 0,
-    desc: 'Detección de incursiones. +5% de defensa.', fx: { def: 0.05 } },
+    desc: 'Detección de incursiones: permite construir radares. +5% de defensa.', fx: { def: 0.05 } },
+  { id: 'air_heli', name: 'Helicópteros', branch: 'air', cost: 5, req: ['air1'], lab: 0, desc: 'Desbloquea el helicóptero de apoyo.', fx: {} },
+  { id: 'air_bomb', name: 'Bombarderos', branch: 'air', cost: 5, req: ['air1'], lab: 0, desc: 'Desbloquea el bombardero.', fx: {} },
+  { id: 'air_bomb2', name: 'Bombas mejoradas', branch: 'air', cost: 6, req: ['air_bomb'], lab: 1, desc: '+10% al bombardero.', fx: {} },
+  { id: 'air_bomb3', name: 'Bombas pesadas', branch: 'air', cost: 8, req: ['air_bomb2'], lab: 1, desc: '+10% más al bombardero.', fx: {} },
   { id: 'air3', name: 'Bombarderos tácticos', branch: 'air', cost: 6, req: ['air2'], lab: 1,
     desc: 'Apoyo aéreo cercano. +8% de ataque.', fx: { atk: 0.08 } },
+  { id: 'air_bestr', name: 'Bombardero estratégico', branch: 'air', cost: 7, req: ['air_bomb', 'air3'], lab: 1, desc: 'Desbloquea el bombardero estratégico (solo edificios y unidades estáticas).', fx: {} },
+  { id: 'drone1', name: 'Drones', branch: 'air', cost: 6, req: ['air2'], lab: 1, desc: 'Desbloquea los drones explorador, kamikaze y señuelo (un solo uso).', fx: {} },
+  { id: 'air_bpes', name: 'Bombardero pesado', branch: 'air', cost: 10, req: ['air_bestr'], lab: 2, labc: 2, desc: 'Desbloquea el bombardero pesado, capaz de cargar ojivas. Exige Laboratorio central nivel 2.', fx: {} },
   { id: 'air4', name: 'Supremacía aérea', branch: 'air', cost: 8, req: ['air3'], lab: 2,
-    desc: 'Dominio del espacio aéreo. +6% de ataque y +6% de defensa.', fx: { atk: 0.06, def: 0.06 } },
+    desc: 'Dominio del espacio aéreo: +10% al caza, +6% de ataque y defensa.', fx: { atk: 0.06, def: 0.06 } },
+  // Marina
+  { id: 'nav1', name: 'Flota de superficie', branch: 'nav', cost: 4, req: [], lab: 0, desc: 'Desbloquea el buque de guerra (requiere puerto y taller).', fx: {} },
+  { id: 'nav_sub', name: 'Submarinos', branch: 'nav', cost: 6, req: ['nav1'], lab: 1, desc: 'Desbloquea el submarino.', fx: {} },
+  { id: 'nav_porta', name: 'Portaaviones', branch: 'nav', cost: 10, req: ['nav1', 'air1'], lab: 2, desc: 'Desbloquea el portaaviones (puerto nivel 2 y fábrica).', fx: {} },
+  // Misiles y ojivas
+  { id: 'mis1', name: 'Batería de misiles M-1', branch: 'mis', cost: 7, req: ['art3'], lab: 1, labc: 1, desc: 'Misiles explosivos de alcance largo: desbloquea la batería de misiles. Exige Laboratorio central.', fx: {} },
+  { id: 'mis2', name: 'Batería de misiles M-2', branch: 'mis', cost: 9, req: ['mis1'], lab: 2, labc: 2, desc: 'Modelo mejorado: +10% de daño a las baterías.', fx: {} },
+  { id: 'mis3', name: 'Batería de misiles M-3', branch: 'mis', cost: 12, req: ['mis2'], lab: 2, labc: 3, desc: 'Modelo avanzado: +10% más de daño a las baterías.', fx: {} },
+  { id: 'silo', name: 'Silos de misiles', branch: 'mis', cost: 10, req: ['mis2'], lab: 2, labc: 2, desc: 'Silos protegidos: las baterías ganan +1 de alcance y recargan un turno antes.', fx: {} },
+  { id: 'oj_exp', name: 'Ojiva explosiva', branch: 'mis', cost: 6, req: ['air_bpes'], lab: 2, labc: 1, desc: 'Bombas de gran potencia para el bombardero pesado (×1,3 de daño).', fx: {} },
+  { id: 'oj_nuc', name: 'Ojiva nuclear', branch: 'mis', cost: 14, req: ['oj_exp'], lab: 3, labc: 3, desc: 'Arma definitiva para el bombardero pesado (×2,5 de daño; gran coste diplomático).', fx: {} },
+  { id: 'oj_bio', name: 'Ojiva bioquímica', branch: 'mis', cost: 12, req: ['oj_exp'], lab: 3, labc: 3, desc: 'Agente bioquímico para el bombardero pesado (×2 de daño y descontento en la provincia).', fx: {} },
+  // Edificios
+  { id: 'bld_aero', name: 'Aeropuertos', branch: 'bld', cost: 3, req: [], lab: 0, desc: 'Permite construir aeropuertos en las provincias.', fx: {} },
+  { id: 'bld_puerto', name: 'Puertos militares', branch: 'bld', cost: 3, req: [], lab: 0, desc: 'Permite construir puertos en las provincias.', fx: {} },
+  { id: 'bld_hosp', name: 'Hospitales de campaña', branch: 'bld', cost: 5, req: ['eco1'], lab: 1, desc: 'Permite construir hospitales que curan las unidades.', fx: {} },
+  { id: 'bld_rail', name: 'Ferrocarril', branch: 'bld', cost: 6, req: ['eco1'], lab: 1, labc: 1, desc: 'Permite construir ferrocarriles. Exige Laboratorio central.', fx: {} },
+  { id: 'bld_fab', name: 'Fábricas', branch: 'bld', cost: 7, req: ['eco2'], lab: 1, labc: 1, desc: 'Los talleres de nivel 3 pueden evolucionar a fábricas (niveles 4-6). Exige Laboratorio central.', fx: {} },
+  // Moral
+  { id: 'mor1', name: 'Propaganda nacional', branch: 'mor', cost: 3, req: [], lab: 0, desc: '+2 de estabilidad y −1 de descontento por turno en provincias ocupadas.', fx: { stab: 2, unrest: -1 } },
+  { id: 'mor2', name: 'Servicios sociales', branch: 'mor', cost: 5, req: ['mor1'], lab: 1, desc: '+3 de estabilidad y −1 más de descontento por turno.', fx: { stab: 3, unrest: -1 } },
+  { id: 'mor3', name: 'Orgullo patrio', branch: 'mor', cost: 7, req: ['mor2'], lab: 1, desc: '+4 de estabilidad, +5% de efectivos y la capital sube la moral de todo el país.', fx: { stab: 4, army: 0.05 } },
+  // Espionaje
+  { id: 'esp1', name: 'Red de informantes', branch: 'esp', cost: 3, req: [], lab: 0, desc: 'Las operaciones de espionaje cuestan un 20% menos.', fx: { spy_cost: -0.2 } },
+  { id: 'esp2', name: 'Contraespionaje', branch: 'esp', cost: 5, req: ['esp1'], lab: 1, desc: 'Agentes mejor entrenados: −10 puntos de riesgo de captura.', fx: { spy_risk: -0.1 } },
+  { id: 'esp3', name: 'Operaciones encubiertas', branch: 'esp', cost: 8, req: ['esp2'], lab: 1, labc: 1, desc: '−10 puntos más de riesgo y golpes de Estado más probables. Exige Laboratorio central.', fx: { spy_risk: -0.1 } },
   // Economia
   { id: 'eco1', name: 'Agricultura mecanizada', branch: 'eco', cost: 3, req: [], lab: 0,
     desc: 'Tractores y fertilizantes. +4% de industria y +1 de estabilidad.', fx: { ind: 0.04, stab: 1 } },
@@ -66,6 +125,19 @@ export const TECHS = [
   { id: 'eco3', name: 'Telecomunicaciones', branch: 'eco', cost: 6, req: ['eco1'], lab: 1,
     desc: 'Redes de radio y telefonía. +3% de industria y +0.2 de desarrollo.', fx: { ind: 0.03, dev: 0.2 } },
 ];
+/** true si `cid` tiene investigada la tecnologia `id`. */
+export function has_tech(game, cid, id) {
+  const t = game && game.ext && game.ext.techs && game.ext.techs[cid];
+  return !!(t && t.done && t.done.includes(id));
+}
+/** Suma de un efecto acumulable (spy_cost, spy_risk, unrest) de las tecnologias investigadas por `cid`. */
+export function tech_fx_sum(game, cid, key) {
+  const t = game && game.ext && game.ext.techs && game.ext.techs[cid];
+  if (!t || !t.done) return 0;
+  let s = 0;
+  for (const id of t.done) { const tt = _tech(id); if (tt && tt.fx && tt.fx[key]) s += tt.fx[key]; }
+  return s;
+}
 
 export const UNIT_INFO = {
   inf: { name: 'Infantería', atk: 3, def: 4, hp: 10, spd: 2, cost: 60,
@@ -194,6 +266,7 @@ function _alive(game, cid) { return game.countries[cid] && game.countries[cid].o
 function _aliveIds(game) { return _ids(game).filter((c) => _alive(game, c)); }
 function _name(game, cid) { const c = game.countries[cid]; return c ? c.name : cid; }
 function _tech(id) { return TECHS.find((t) => t.id === id) || null; }
+const st_has = (e, cid, id) => !!(e.techs[cid] && e.techs[cid].done.includes(id));
 
 function _blank_tech() { return { rp: 0, done: [], cur: null, prog: 0 }; }
 function _blank_policy() {
@@ -389,6 +462,8 @@ export function ext_action(game, body) {
       const missing = t.req.filter((r) => !st.done.includes(r));
       if (missing.length) return err(`Faltan requisitos: ${missing.map((r) => _tech(r).name).join(', ')}.`);
       if ((e.labs[me] || 0) < t.lab) return err(`Requiere laboratorio nivel ${t.lab}.`);
+      if (t.labc) { let lc = 0; try { lc = prov_labc_level(game, me); } catch (er) { lc = 0; }
+        if (lc < t.labc) return err(`Requiere Laboratorio central nivel ${t.labc} en alguna provincia.`); }
       if (st.cur) st.rp = r2(st.rp + st.prog * 0.5); // cambiar de proyecto pierde la mitad del avance
       st.cur = t.id; st.prog = r2(st.rp); st.rp = 0;
       return ok(`Investigación iniciada: ${t.name}.`);
@@ -487,15 +562,17 @@ export function ext_action(game, body) {
       const tgt = b.target;
       if (!op) return err('Operación inválida.');
       if (!tgt || tgt === me || !_alive(game, tgt)) return err('Objetivo inválido.');
-      if (pc.money < op.cost) return err(`Fondos insuficientes (se necesitan ${op.cost}).`);
-      pc.money = r2(pc.money - op.cost);
+      const opCost = Math.round(op.cost * (1 + tech_fx_sum(game, me, 'spy_cost')));
+      if (pc.money < opCost) return err(`Fondos insuficientes (se necesitan ${opCost}).`);
+      pc.money = r2(pc.money - opCost);
       const rng = make_rng(game, 'spy' + game.turn + e.spy_log.length);
       const tc = game.countries[tgt];
       let risk = op.risk;
       if (b.op === 'coup') risk = tc.stability < 40 ? 0.35 : 0.75;
+      risk = clampN(risk + tech_fx_sum(game, me, 'spy_risk'), 0.03, 0.95);
       const caught = rng.random() < (b.op === 'coup' ? Math.min(risk, 0.5) : risk);
       let success = !caught;
-      if (b.op === 'coup' && success) success = rng.random() < (tc.stability < 40 ? 0.65 : 0.25);
+      if (b.op === 'coup' && success) success = rng.random() < (tc.stability < 40 ? 0.65 : 0.25) + (st_has(e, me, 'esp3') ? 0.15 : 0);
       const entry = { turn: game.turn, op: b.op, target: tgt, ok: success, caught };
       e.spy_log.push(entry);
       if (e.spy_log.length > 60) e.spy_log.splice(0, e.spy_log.length - 60);
@@ -589,7 +666,8 @@ function _tech_effects_tick(game, cid) {
 function _ai_pick_tech(game, cid, rng) {
   const st = game.ext.techs[cid];
   const lab = game.ext.labs[cid] || 0;
-  const opts = TECHS.filter((t) => !st.done.includes(t.id) && t.lab <= lab && t.req.every((r) => st.done.includes(r)));
+  let lc = 0; try { lc = prov_labc_level(game, cid); } catch (er) { lc = 0; }
+  const opts = TECHS.filter((t) => !st.done.includes(t.id) && t.lab <= lab && (t.labc || 0) <= lc && t.req.every((r) => st.done.includes(r)));
   if (!opts.length) return null;
   return opts[Math.floor(rng.random() * opts.length)].id;
 }

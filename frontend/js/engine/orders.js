@@ -6,6 +6,7 @@ import * as E from './economy.js';
 import * as S from './state.js';
 import { order_check } from './supply.js';
 import { army_check } from './dipext.js';
+import { order_check_div } from './units.js';
 
 const _has = (obj, k) => obj != null && k != null && Object.prototype.hasOwnProperty.call(obj, k);
 const _get = (obj, k, dflt) => (_has(obj, k) ? obj[k] : dflt);
@@ -223,6 +224,11 @@ export function queue_order(game, ent, otype, target = null, division_id = null,
     }
   } else if (MILITARY.has(otype)) {
     division = _check_military(game, ent, otype, target, division_id);
+    if (game.ext) { // Tanda 3: estados (en carga, recarga, marcha), unidades estaticas y radio de accion
+      let why = null;
+      try { why = order_check_div(game, division, otype, target); } catch (e) { why = null; }
+      if (why) throw new OrderError(why);
+    }
   } else {
     _check_economy(game, ent, otype, params);
     if (game.ext) { // Tanda 1: las ordenes economicas pueden exigir existencias (metal, combustible...)

@@ -27,6 +27,24 @@ function _cmult(game, target) {
     if (!_ext(game)) return 1.0;
     try { return country_defense_mult(game, target) || 1; } catch (e) { return 1.0; }
 }
+// Tanda 3: contexto de batalla (divisiones enfrentadas) para emparejamientos, estados y perdidas por tipo.
+function _battle_begin(game, att, defs) {
+    if (!_ext(game)) return;
+    game.ext.battle = { att, def: defs };
+}
+function _battle_end(game) {
+    if (_ext(game) && game.ext.battle) delete game.ext.battle;
+}
+/** Divisiones que pueden combatir (no en carga/recarga/marcha). Sin game.ext devuelve la lista tal cual. */
+function _active(game, divs) {
+    if (!_ext(game)) return divs;
+    return divs.filter(d => { try { return U.can_act(game, d) !== false; } catch (e) { return true; } });
+}
+/** Fraccion de perdidas ajustada por tipo (tanque pesado x4 ante antitanque, artilleria a distancia 0, fortaleza...). */
+function _lmult(game, d, opp, attacking) {
+    if (!_ext(game)) return 1.0;
+    try { const m = U.loss_mult(game, d, opp, attacking); return Number.isFinite(m) && m >= 0 ? m : 1.0; } catch (e) { return 1.0; }
+}
 
 function _has(obj, key) {
     return key !== null && key !== undefined && Object.prototype.hasOwnProperty.call(obj, key);
@@ -204,7 +222,9 @@ export function resolve_assault(game, attacker, target, divs, rng) {
     if (!S.at_war(game, attacker, defender)) {
         D.declare_war(game, attacker, defender, rng, " al atacar su territorio");
     }
-    const defs = defenders_at(game, target, attacker);
+    const allDefs = defenders_at(game, target, attacker);
+    const defs = _active(game, allDefs);
+    _battle_begin(game, divs, defs);
     const att = attack_strength(game, divs, target, rng);
     const dfn = defense_strength(game, defs, target, rng);
     const won = att > dfn;
@@ -213,15 +233,16 @@ export function resolve_assault(game, attacker, target, divs, rng) {
     if (won) {
         const frac = Math.min(C.MAX_LOSS_FRACTION, C.WIN_LOSS * dfn / Math.max(att, 0.01));
         for (const d of divs) {
-            att_lost += _scale(d, frac);
+            att_lost += _scale(d, frac * _lmult(game, d, defs, true));
             d.org = Math.max(0, d.org - C.ORG_ATTACK_COST);
         }
-        for (const d of defs) {
-            def_lost += d.troops * C.DEFEATED_DEF_LOSS;
-            _scale_full(d, C.DEFEATED_DEF_LOSS);
+        for (const d of allDefs) {
+            const f = Math.min(1, C.DEFEATED_DEF_LOSS * _lmult(game, d, divs, false));
+            def_lost += d.troops * f;
+            _scale_full(d, f);
         }
         capture(game, attacker, target);
-        for (const d of defs) {
+        for (const d of allDefs) {
             _retreat(game, d, target, attacker);
         }
         for (const d of divs) {
@@ -232,13 +253,14 @@ export function resolve_assault(game, attacker, target, divs, rng) {
         const frac_a = Math.min(C.MAX_LOSS_FRACTION, C.LOSE_ATT_LOSS * dfn / Math.max(att, 0.01));
         const frac_d = Math.min(C.MAX_LOSS_FRACTION, C.LOSE_DEF_LOSS * att / Math.max(dfn, 0.01));
         for (const d of divs) {
-            att_lost += _scale(d, frac_a);
+            att_lost += _scale(d, frac_a * _lmult(game, d, defs, true));
             d.org = Math.max(0, d.org - C.ORG_LOSE_COST);
         }
-        for (const d of defs) {
-            def_lost += _scale(d, frac_d);
+        for (const d of allDefs) {
+            def_lost += _scale(d, frac_d * _lmult(game, d, divs, false));
         }
     }
+    _battle_end(game);
     const war = S.find_war(game, attacker, defender);
     if (war) {
         war.last_combat = game.turn;
@@ -309,9 +331,11 @@ export function resolve_moves(game, orders) {
         if (town_owner !== d.owner && !S.allies_of(game, d.owner).includes(town_owner)) {
             continue;
         }
+        const from = d.location;
         d.location = tgt;
         d.stance = "idle";
         moved.add(d.id);
+        if (_ext(game)) { try { U.on_move(game, d, from, tgt); } catch (e) { /* neutro */ } }
     }
     return moved;
 }
@@ -327,6 +351,9 @@ export function resolve_attacks(game, orders, rng) {
         const d = _valid_division(game, o);
         const tgt = o.target === undefined ? null : o.target;
         if (d === null || !_has(game.countries, tgt) || d.org < C.ORG_MIN_ATTACK) {
+            continue;
+        }
+        if (_ext(game) && !_active(game, [d]).length) {
             continue;
         }
         if (!S.is_adjacent(d.location, tgt)) {

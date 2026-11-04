@@ -134,12 +134,12 @@ export function refresh() {
   // Infraestructura: niveles y efectos
   const infraLevels = [];
   const b = s.b || {};
-  for (const k of ['lab', 'carretera', 'ferrocarril', 'fuerte', 'linea']) {
+  for (const k of ['lab', 'labc', 'avenida', 'ferrocarril', 'fuerte', 'linea', 'aeropuerto', 'puerto', 'hospital', 'radar']) {
     const lvl = b[k] || 0;
     if (lvl > 0) infraLevels.push(h('span', { class: 'pp-badge' }, iconHTML(P.BUILD[k].icon, BUILD_COLOR[k] || '#7a8a5a', 18), String(lvl)));
   }
   const infraEffects = [];
-  const labLvl = b.lab || 0, roadLvl = b.carretera || 0, railLvl = b.ferrocarril || 0, fortLvl = b.fuerte || 0, lineLvl = b.linea || 0;
+  const labLvl = b.lab || 0, roadLvl = b.avenida || 0, railLvl = b.ferrocarril || 0, fortLvl = b.fuerte || 0, lineLvl = b.linea || 0;
   if (labLvl > 0) infraEffects.push(`Investigación +${(labLvl * 0.12).toFixed(2)}`);
   if (roadLvl > 0 || railLvl > 0) infraEffects.push(`Movilidad +${Math.round((roadLvl * 3 + railLvl * 6))}%`);
   if (fortLvl > 0 || lineLvl > 0) infraEffects.push(`Defensa +${Math.round((fortLvl * 40 + lineLvl * 20))}%`);
@@ -164,7 +164,7 @@ export function refresh() {
       const reqOk = !B.reqFn || B.reqFn(s);
       const cost = P.build_cost(s, k);
       let why = !mine ? 'No es tuya' : !needOk ? 'Requiere ' + B.need.map((r) => P.RES[r].name).join('/') : l >= B.max ? 'Nivel máximo' : s.q ? 'Obra en curso' : '';
-      if (!why && !reqOk) why = 'Requiere fábrica o capital';
+      if (!why && !reqOk) why = 'Requiere taller o capital';
       if (!why && B.req) {
         const missing = Object.entries(B.req).find(([rk, rv]) => (b[rk] || 0) < rv);
         if (missing) why = `Requiere ${P.BUILD[missing[0]].name} nv ${missing[1]}`;
@@ -190,9 +190,9 @@ export function refresh() {
   };
   let tabContent = null;
   if (currentTab === 'build') {
-    tabContent = buildTab(['base', 'fabrica', 'refineria', 'mina', 'granja']);
+    tabContent = buildTab(Object.keys(P.BUILD).filter((k) => P.BUILD[k].group === 'eco' || k === 'base'));
   } else if (currentTab === 'infra') {
-    tabContent = buildTab(['lab', 'carretera', 'ferrocarril', 'fuerte', 'linea']);
+    tabContent = buildTab(Object.keys(P.BUILD).filter((k) => P.BUILD[k].group !== 'eco' && k !== 'base'));
   } else if (currentTab === 'recruit') {
     const canRecruit = mine && (s.cap || (b.base || 0) >= 1);
     if (!canRecruit) {

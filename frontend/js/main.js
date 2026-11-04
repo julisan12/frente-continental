@@ -9,6 +9,7 @@ import * as economy from './ui/economy.js';
 import * as army from './ui/army.js';
 import * as diplomacy from './ui/diplomacy.js';
 import * as more from './ui/more.js';
+import * as tasks from './ui/tasks.js';
 import { countryPanel, countryButtons } from './ui/country.js';
 import { menuModal, newGameFlow } from './ui/modals.js';
 import { variant_of } from './data/provinces.js';
@@ -16,7 +17,7 @@ import { settingsForm, offlineButton } from './ui/settings.js';
 import { showTutorial } from './ui/tutorial.js';
 
 const $ = (id) => document.getElementById(id);
-const SCREENS = ['map', 'country', 'economy', 'army', 'diplomacy', 'more'];
+const SCREENS = ['map', 'country', 'economy', 'army', 'diplomacy', 'tasks', 'more'];
 const secs = {};
 let navEl = null;
 let endEl = null;
@@ -30,7 +31,7 @@ function renderCountry(el) {
   el.append(h('div', { class: 'stack' }, countryPanel(cid), h('div', { class: 'row', style: { flexWrap: 'wrap', gap: '6px' } }, countryButtons(cid))));
 }
 
-const RENDER = { country: renderCountry, economy: economy.render, army: army.render, diplomacy: diplomacy.render, more: more.render };
+const RENDER = { country: renderCountry, economy: economy.render, army: army.render, diplomacy: diplomacy.render, tasks: tasks.render, more: more.render };
 
 function build() {
   const main = $('main');

@@ -142,7 +142,7 @@ function _compute_production(game, cid, c) {
     out.food += (b.granja || 0) * PROD_BASE.food.granja * mult;
     out.fuel += (b.refineria || 0) * PROD_BASE.fuel.refineria * mult;
     out.metal += (b.mina || 0) * PROD_BASE.metal.mina * mult;
-    out.goods += (b.fabrica || 0) * PROD_BASE.goods.fabrica * mult;
+    out.goods += (0.5 * Math.min(3, b.taller || 0) + Math.max(0, (b.taller || 0) - 3)) * PROD_BASE.goods.fabrica * mult; // taller 1-3: 0,5; fábrica (4-6): +1 por nivel
   }
 
   // Produccion nacional: la industria fabrica bienes (el metal que consume se contabiliza en _compute_consumption)

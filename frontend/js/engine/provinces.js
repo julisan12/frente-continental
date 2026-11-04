@@ -6,18 +6,80 @@ import { capture } from './military.js';
 import { at_war, divisions_of, sync_armies, land_adjacency, use_variant, all_countries } from './state.js';
 import * as UNITS from './units.js';
 
+// Tanda 3: catálogo de edificios. Claves ESTABLES (las usan art.js, provpanel.js, mapfx.js, units.js, aero.js).
+//   group    pestaña del panel: eco | mil | infra
+//   levels   nombres por nivel (opcional; 'taller' evoluciona a 'Fábrica' en los niveles 4-6)
+//   tech     tecnología necesaria (id de features.TECHS)    labc  nivel mínimo de Laboratorio central en el país
+//   unique   solo uno por jugador (capital)                 reqFn(p, game, ent) condición adicional (string = motivo)
 export const BUILD = {
-  base:      { name: 'Base militar', cost: 60, turns: 2, max: 3, icon: 'base' },
-  fabrica:   { name: 'Fábrica',      cost: 50, turns: 2, max: 3, icon: 'factory' },
-  refineria: { name: 'Refinería',    cost: 70, turns: 2, max: 3, icon: 'refinery', need: ['petroleo', 'gas'] },
-  mina:      { name: 'Mina',         cost: 55, turns: 2, max: 3, icon: 'mine', need: ['minerales', 'cobre'] },
-  granja:    { name: 'Granja',       cost: 35, turns: 1, max: 3, icon: 'agri' },
-  lab:       { name: 'Laboratorio',  cost: 90, turns: 3, max: 2, icon: 'lab', reqFn: (p) => (p.b.fabrica >= 1 || p.cap) },
-  carretera: { name: 'Carretera',    cost: 45, turns: 2, max: 3, icon: 'road' },
-  ferrocarril: { name: 'Ferrocarril', cost: 80, turns: 3, max: 2, icon: 'rail', req: { carretera: 1 } },
-  fuerte:    { name: 'Fortaleza',    cost: 85, turns: 3, max: 2, icon: 'fort' },
-  linea:     { name: 'Línea defensiva', cost: 40, turns: 1, max: 2, icon: 'trench' },
+  // economía
+  granja:    { name: 'Granja',       cost: 35, turns: 1, max: 3, icon: 'agri', group: 'eco' },
+  mina:      { name: 'Mina',         cost: 55, turns: 2, max: 3, icon: 'mine', group: 'eco', need: ['minerales', 'cobre'] },
+  refineria: { name: 'Refinería',    cost: 70, turns: 2, max: 3, icon: 'refinery', group: 'eco', need: ['petroleo', 'gas'] },
+  taller:    { name: 'Taller',       cost: 60, turns: 2, max: 6, icon: 'factory', group: 'eco',
+    levels: ['', 'Taller nv 1', 'Taller nv 2', 'Taller nv 3', 'Fábrica nv 1', 'Fábrica nv 2', 'Fábrica nv 3'],
+    desc: 'Niveles 1-3 (taller): producción de unidades más rápida y requisito de blindados, mecanizados, aviones y drones. Niveles 4-6 (fábrica): bonificación a los recursos de la provincia.' },
+  // militar
+  base:      { name: 'Base militar', cost: 60, turns: 2, max: 3, icon: 'base', group: 'mil' },
+  fuerte:    { name: 'Fortaleza',    cost: 85, turns: 3, max: 5, icon: 'fort', group: 'mil', desc: '+10 % de daño defendiendo y +5 % de resistencia por nivel.' },
+  linea:     { name: 'Línea defensiva', cost: 40, turns: 1, max: 2, icon: 'trench', group: 'mil' },
+  aeropuerto: { name: 'Aeropuerto',  cost: 120, turns: 3, max: 3, icon: 'airport', group: 'mil', tech: 'bld_aero', desc: 'Necesario para crear y sostener aviones, drones y helicópteros: 2 aeronaves por nivel.' },
+  puerto:    { name: 'Puerto',       cost: 110, turns: 3, max: 2, icon: 'port', group: 'mil', tech: 'bld_puerto', desc: 'Permite construir barcos, submarinos y portaaviones (con taller/fábrica en la misma provincia).' },
+  hospital:  { name: 'Hospital',     cost: 160, turns: 3, max: 2, icon: 'hospital', group: 'mil', tech: 'bld_hosp', desc: 'Cura las unidades terrestres del territorio cada turno a cambio de suministros.' },
+  radar:     { name: 'Radar',        cost: 130, turns: 2, max: 2, icon: 'radar', group: 'mil', tech: 'air2', desc: 'Detecta aviones y misiles enemigos. Debe estar al menos a una provincia de cualquier frontera extranjera.' },
+  capital:   { name: 'Capital',      cost: 300, turns: 2, max: 1, icon: 'star', group: 'mil', unique: true, desc: 'Una por jugador. Sube la moral de la provincia; construir otra destruye la anterior con una penalización de moral allí.' },
+  // infraestructura
+  avenida:   { name: 'Avenidas',     cost: 50, turns: 2, max: 1, icon: 'road', group: 'infra', desc: 'Bonificación de transporte solo para las unidades de su dueño.' },
+  ferrocarril: { name: 'Ferrocarril', cost: 90, turns: 3, max: 2, icon: 'rail', group: 'infra', req: { avenida: 1 }, tech: 'bld_rail', desc: 'Movimiento muy rápido entre provincias con ferrocarril; las unidades «en carga» no atacan ni defienden.' },
+  lab:       { name: 'Laboratorio',  cost: 90, turns: 3, max: 2, icon: 'lab', group: 'infra', reqFn: (p) => (p.b.taller >= 1 || p.cap) },
+  labc:      { name: 'Laboratorio central', cost: 220, turns: 4, max: 3, icon: 'labc', group: 'infra', desc: 'Caro, pero su nivel desbloquea las tecnologías avanzadas: ojivas, bombarderos pesados, baterías de misiles, silos, tanques pesados, élite, fábricas y ferrocarriles.' },
 };
+export const BUILD_KEYS = Object.keys(BUILD);
+export const BUILD_GROUPS = { eco: 'Economía', mil: 'Militar', infra: 'Infraestructura' };
+/** Claves antiguas (Tanda 1/2) → nueva clave. */
+const MIGRATE_BUILD = { fabrica: 'taller', carretera: 'avenida' };
+export const PROV_VERSION = 3;
+
+/** Nombre del edificio `kind` al nivel `lv` (p.ej. taller 4 → 'Fábrica nv 1'). */
+export function build_name(kind, lv) {
+  const B = BUILD[kind]; if (!B) return kind;
+  if (B.levels && B.levels[lv]) return B.levels[lv];
+  return B.name;
+}
+
+/** Migración perezosa de los edificios de una partida guardada antigua a las claves de la Tanda 3. */
+export function migrate_prov(game) {
+  const e = game.ext; if (!e || !e.prov) return;
+  if ((e.pv || 0) >= PROV_VERSION) return;
+  for (const p of Object.values(e.prov)) {
+    const b = p.b || (p.b = {});
+    for (const [oldK, newK] of Object.entries(MIGRATE_BUILD)) {
+      if (b[oldK] != null) { b[newK] = Math.max(b[newK] || 0, Math.min(BUILD[newK].max, b[oldK])); delete b[oldK]; }
+    }
+    for (const k of BUILD_KEYS) if (typeof b[k] !== 'number') b[k] = 0;
+    for (const k of Object.keys(b)) if (!BUILD[k]) delete b[k];
+    b.capital = p.cap ? 1 : 0;
+    if (p.q && MIGRATE_BUILD[p.q.kind]) p.q.kind = MIGRATE_BUILD[p.q.kind];
+    if (p.q && !BUILD[p.q.kind]) p.q = null;
+  }
+  e.pv = PROV_VERSION;
+}
+
+/** Nivel máximo de Laboratorio central entre las provincias de `ent` (desbloqueo de tecnologías). */
+export function prov_labc_level(game, ent) {
+  const pr = game.ext && game.ext.prov; if (!pr) return 0;
+  let m = 0;
+  for (const p of Object.values(pr)) if (p.o === ent && (p.b.labc || 0) > m) m = p.b.labc;
+  return m;
+}
+
+/** Nivel máximo del edificio `kind` entre las provincias de `ent`. */
+export function prov_max_level(game, ent, kind) {
+  const pr = game.ext && game.ext.prov; if (!pr) return 0;
+  let m = 0;
+  for (const p of Object.values(pr)) if (p.o === ent && (p.b[kind] || 0) > m) m = p.b[kind];
+  return m;
+}
 export const RES = {
   petroleo: { name: 'Petróleo', icon: 'oil' },
   gas: { name: 'Gas', icon: 'gas' },
@@ -129,7 +191,7 @@ export function prov_geo() {
 // ------------------------------------------------------------------ estado
 export function init_prov(game) {
   const e = game.ext;
-  if (e.prov && e.cown) return;
+  if (e.prov && e.cown) { migrate_prov(game); return; }
   if (!e.prov && !e.geo) e.geo = { density: 2 }; // partida nueva: geometria densa
   use_game_geo(game);
   const G = prov_geo();
@@ -140,7 +202,8 @@ export function init_prov(game) {
     (byC[p.c] = byC[p.c] || []).push(p);
     const opts = RES_BY_T[p.t] || [null];
     const r = opts[hash(p.pid) % opts.length];
-    e.prov[p.pid] = { c: p.c, o: game.countries[p.c].owner, r, cap: false, g: 0, b: { base: 0, fabrica: 0, refineria: 0, mina: 0, granja: 0, lab: 0, carretera: 0, ferrocarril: 0, fuerte: 0, linea: 0 }, q: null };
+    const b = {}; for (const k of BUILD_KEYS) b[k] = 0;
+    e.prov[p.pid] = { c: p.c, o: game.countries[p.c].owner, r, cap: false, g: 0, b, q: null };
   }
   for (const [cid, ps] of Object.entries(byC)) {
     e.cown[cid] = game.countries[cid].owner;
@@ -153,8 +216,9 @@ export function init_prov(game) {
       const cx = ps.reduce((s, p) => s + p.x, 0) / ps.length, cy = ps.reduce((s, p) => s + p.y, 0) / ps.length;
       cap = ps.reduce((b, p) => (Math.hypot(p.x - cx, p.y - cy) < Math.hypot(b.x - cx, b.y - cy) ? p : b));
     }
-    const pc = e.prov[cap.pid]; pc.cap = true; pc.b.base = 1; pc.b.fabrica = 1;
+    const pc = e.prov[cap.pid]; pc.cap = true; pc.b.base = 1; pc.b.taller = 1; pc.b.capital = 1;
   }
+  e.pv = PROV_VERSION;
 }
 
 const P = (game) => game.ext && game.ext.prov;
@@ -252,7 +316,7 @@ export function prov_build(game, ent, pid, kind, free) {
   if (p.o !== ent) return { ok: false, error: 'La provincia no es tuya.' };
   if (p.q) return { ok: false, error: 'Ya hay una obra en curso.' };
   if (B.need && !B.need.includes(p.r)) return { ok: false, error: B.name + ' requiere ' + B.need.map((x) => RES[x].name).join(' o ') + '.' };
-  if (B.reqFn && !B.reqFn(p)) return { ok: false, error: B.name + ' requiere fábrica o capital.' };
+  if (B.reqFn && !B.reqFn(p)) return { ok: false, error: B.name + ' requiere taller o capital.' };
   if (B.req) {
     for (const [k, v] of Object.entries(B.req)) {
       if ((p.b[k] || 0) < v) return { ok: false, error: B.name + ' requiere ' + BUILD[k].name + ' nivel ' + v + '.' };
@@ -296,7 +360,7 @@ export function prov_turn(game, rng, lines) {
     }
     if (!game.countries[p.o]) continue;
     if (p.r) add(p.o, 'm', 1.5);
-    add(p.o, 'm', 3 * p.b.fabrica + 6 * p.b.refineria + 4 * p.b.mina + 2 * p.b.granja + 0.6 * (p.b.carretera || 0) + 1.5 * (p.b.ferrocarril || 0));
+    add(p.o, 'm', 2 * Math.min(3, p.b.taller || 0) + 4 * Math.max(0, (p.b.taller || 0) - 3) + 6 * p.b.refineria + 4 * p.b.mina + 2 * p.b.granja + 0.6 * (p.b.avenida || 0) + 1.5 * (p.b.ferrocarril || 0));
     add(p.o, 's', 0.15 * p.b.granja);
     add(p.o, 't', 0.6 * p.b.base);
     if (p.g > 0 && p.o !== game.countries[p.c].owner) p.g = Math.min(60, p.g + 0.5 * p.b.base);
@@ -308,7 +372,7 @@ export function prov_turn(game, rng, lines) {
     const cid = p.c;
     if (!roadByOwner[p.o]) roadByOwner[p.o] = {};
     if (!roadByOwner[p.o][cid]) roadByOwner[p.o][cid] = { sum: 0, cnt: 0 };
-    roadByOwner[p.o][cid].sum += (p.b.carretera || 0);
+    roadByOwner[p.o][cid].sum += (p.b.avenida || 0);
     roadByOwner[p.o][cid].cnt += 1;
   }
   for (const [o, byC] of Object.entries(roadByOwner)) {
@@ -377,8 +441,8 @@ export function prov_yield(game, pid) {
   food += 1.2 * (p.b.granja || 0);
   fuel += 2.5 * (p.b.refineria || 0);
   metal += 2 * (p.b.mina || 0);
-  goods += 1.0 * (p.b.fabrica || 0);
-  money += 3 * (p.b.fabrica || 0) + 6 * (p.b.refineria || 0) + 4 * (p.b.mina || 0) + 2 * (p.b.granja || 0) + 0.6 * (p.b.carretera || 0) + 1.5 * (p.b.ferrocarril || 0);
+  goods += 0.5 * Math.min(3, p.b.taller || 0) + 1.0 * Math.max(0, (p.b.taller || 0) - 3);
+  money += 2 * Math.min(3, p.b.taller || 0) + 4 * Math.max(0, (p.b.taller || 0) - 3) + 6 * (p.b.refineria || 0) + 4 * (p.b.mina || 0) + 2 * (p.b.granja || 0) + 0.6 * (p.b.avenida || 0) + 1.5 * (p.b.ferrocarril || 0);
   return { money: Math.round(money * 10) / 10, food: Math.round(food * 10) / 10, fuel: Math.round(fuel * 10) / 10, goods: Math.round(goods * 10) / 10, metal: Math.round(metal * 10) / 10 };
 }
 
@@ -423,7 +487,7 @@ export function country_defense_mult(game, target) {
       lineSum += (p.b.linea || 0);
     }
   }
-  const fortMult = Math.min(0.4, fortSum * 0.08);
+  const fortMult = Math.min(0.5, fortSum * 0.05);
   const lineMult = Math.min(0.2, lineSum * 0.04);
   return 1.0 + fortMult + lineMult;
 }
@@ -439,7 +503,7 @@ export function attack_logistics_mult(game, d, target) {
   for (const pid of provs) {
     const p = pr[pid];
     railSum += (p.b.ferrocarril || 0);
-    roadSum += (p.b.carretera || 0);
+    roadSum += (p.b.avenida || 0);
   }
   const railAvg = railSum / provs.length;
   const roadAvg = roadSum / provs.length;

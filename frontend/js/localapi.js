@@ -8,6 +8,8 @@ import * as views from './engine/views.js';
 import { VERSION } from './engine/constants.js';
 import { end_turn } from './engine/turn.js';
 import { init_ext, ext_action, ext_turn } from './engine/features.js';
+import { VARIANTS, variant_of } from './data/provinces.js';
+import { use_game_geo } from './engine/provinces.js';
 
 const PREFIX = 'fc_local_game_';
 const INDEX_KEY = 'fc_local_games';
@@ -15,7 +17,7 @@ const MAX_GAMES = 6;
 const ID_RE = /^[A-Za-z0-9]{1,64}$/;
 
 let _ready = null;
-let _mapCache = null;
+let _mapCache = {};
 
 const fail = (status, detail) => { throw { status, detail }; };
 const bad = (e) => fail(400, (e && e.message) || String(e));
@@ -110,22 +112,30 @@ function load(gid) {
 export const exists = (gid) => load(gid) !== null;
 export function deleteGame(gid) { LS.del(PREFIX + gid); setIndex(index().filter((i) => i !== gid)); }
 
-const get = (gid) => load(gid) || fail(404, 'Partida no encontrada.');
+/** Activa la variante de mapa y la geometria de provincias de la partida antes de operar con ella. */
+function activate(g) {
+  S.use_variant(variant_of(g));
+  try { use_game_geo(g); } catch { /* geometria opcional */ }
+  return g;
+}
+const get = (gid) => activate(load(gid) || fail(404, 'Partida no encontrada.'));
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : (typeof v === 'string' && v.trim() !== '' && Number.isFinite(+v) ? +v : null));
 
 // ------------------------------------------------------------------ rutas
-export function health() { return { ok: true, version: VERSION }; }
+export function health() { return { ok: true, version: VERSION, variants: Object.keys(VARIANTS) }; }
 
-export function getMap() {
-  if (!_mapCache) {
+export function getMap(variant) {
+  const v = VARIANTS[variant] ? variant : 'latam';
+  if (!_mapCache[v]) {
     const keys = ['id', 'name', 'color', 'path', 'neighbors', 'sea', 'power', 'alignment', 'resources'];
-    _mapCache = {
-      viewBox: '0 0 500 535',
-      countries: S.load_countries().map((c) => { const o = {}; keys.forEach((k) => { o[k] = k in c ? c[k] : null; }); return o; }),
+    const ids = VARIANTS[v].ids;
+    _mapCache[v] = {
+      viewBox: VARIANTS[v].viewBox, variant: v,
+      countries: S.all_countries().filter((c) => !ids || ids.includes(c.id)).map((c) => { const o = {}; keys.forEach((k) => { o[k] = k in c ? c[k] : null; }); return o; }),
     };
   }
-  return _mapCache;
+  return _mapCache[v];
 }
 
 export function createGame(body) {
@@ -134,8 +144,10 @@ export function createGame(body) {
   let seed = body.seed == null ? undefined : num(body.seed);
   if (body.seed != null && seed === null) fail(422, 'Solicitud no válida.');
   if (seed === undefined) seed = null;
+  if (body.variant != null && !VARIANTS[body.variant]) fail(422, 'Variante de mapa no válida.');
+  const variant = body.variant == null ? 'latam' : body.variant;
   let g;
-  try { g = S.new_game(body.player, seed); init_ext(g); } catch (e) { bad(e); }
+  try { g = S.new_game(body.player, seed, null, variant); activate(g); init_ext(g); } catch (e) { bad(e); }
   save(g);
   return views.game_view(g);
 }
@@ -228,7 +240,7 @@ export async function handle(method, path, body) {
   const p = path.split('?')[0].split('/').filter(Boolean).map(dec);
   const m = method.toUpperCase();
   if (m === 'GET' && p[0] === 'health' && p.length === 1) return health();
-  if (m === 'GET' && p[0] === 'map' && p.length === 1) return getMap();
+  if (m === 'GET' && p[0] === 'map' && p.length === 1) return getMap(new URLSearchParams(path.split('?')[1] || '').get('variant'));
   if (p[0] === 'games') {
     if (m === 'POST' && p.length === 1) return createGame(body);
     const gid = p[1];

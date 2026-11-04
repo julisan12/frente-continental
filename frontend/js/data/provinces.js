@@ -37,6 +37,112 @@ for (const [id, s] of Object.entries(RAW)) {
   });
 }
 
+
+// ------------------------------------------------------------------ variantes de mapa (Tanda 2)
+const SUR_IDS = ['Argentina', 'Bolivia', 'Brazil', 'Chile', 'Colombia', 'Ecuador', 'Guyana', 'Paraguay', 'Peru', 'Suriname', 'Uruguay', 'Venezuela'];
+export const VARIANTS = {
+  latam: { name: 'Latinoamérica', desc: 'Los 24 países, de México al Cono Sur.', ids: null, viewBox: '0 0 500 535' },
+  sur: { name: 'América del Sur', desc: 'Solo Sudamérica: 12 países, partida más densa.', ids: SUR_IDS, viewBox: '200 105 290 410' },
+};
+export const variant_of = (game) => (game && VARIANTS[game.variant] ? game.variant : 'latam');
+
+// ------------------------------------------------------------------ subdivision de provincias (densidad 2)
+const AREA_MIN = 16; // unidades^2 del mapa por provincia como minimo
+const fromXY = (x, y) => [(188.1328 - y) / 5.69804, (x - 678.1274) / 5.69998];
+
+function parsePolys(path) {
+  const polys = [];
+  for (const sub of String(path || '').split('M').filter((t) => t.trim())) {
+    const pts = sub.replace(/[ZzL]/g, ' ').trim().split(/\s+/).map((t) => t.split(',').map(Number)).filter((q) => q.length === 2 && isFinite(q[0]) && isFinite(q[1]));
+    if (pts.length >= 3) polys.push(pts);
+  }
+  return polys;
+}
+function polysArea(polys) {
+  let a = 0;
+  for (const pl of polys) {
+    let s = 0;
+    for (let i = 0, j = pl.length - 1; i < pl.length; j = i++) s += pl[j][0] * pl[i][1] - pl[i][0] * pl[j][1];
+    a += Math.abs(s) / 2;
+  }
+  return a;
+}
+function inPolys(polys, x, y) {
+  let ins = false;
+  for (const pl of polys) {
+    for (let i = 0, j = pl.length - 1; i < pl.length; j = i++) {
+      const [xi, yi] = pl[i], [xj, yj] = pl[j];
+      if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) ins = !ins;
+    }
+  }
+  return ins;
+}
+export function country_area(path) { return polysArea(parsePolys(path)); }
+
+/**
+ * Subdivide determinista de las provincias de un pais. rows = [[nombre, lat, lon, terreno], ...].
+ * Devuelve filas [nombre, lat, lon, terreno, parentIdx, sub]; sub = 'N'|'S'|'E'|'O'|'C'|null.
+ * Con path vacio o pais diminuto devuelve las filas originales (sub null).
+ */
+export function subdivide(cid, rows, countryPath) {
+  const n = rows.length;
+  const keep = () => rows.map((r, i) => [r[0], r[1], r[2], r[3], i, null]);
+  const polys = parsePolys(countryPath);
+  if (!polys.length) return keep();
+  const area = polysArea(polys);
+  let target = Math.max(12, Math.min(48, Math.round(n * 2)));
+  target = Math.max(n, Math.min(target, Math.floor(area / AREA_MIN)));
+  if (target <= n) return keep();
+  // muestreo en rejilla: cada punto interior se asigna a la provincia mas cercana (celda Voronoi aproximada)
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const pl of polys) for (const [x, y] of pl) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const step = Math.max(0.8, Math.sqrt(area / 5000));
+  const sites = rows.map((r) => toXY(r[1], r[2]));
+  const cells = rows.map(() => []);
+  for (let y = y0 + step / 2; y < y1; y += step) {
+    for (let x = x0 + step / 2; x < x1; x += step) {
+      if (!inPolys(polys, x, y)) continue;
+      let b = 0, bd = Infinity;
+      for (let k = 0; k < n; k++) { const d = (sites[k][0] - x) ** 2 + (sites[k][1] - y) ** 2; if (d < bd) { bd = d; b = k; } }
+      cells[b].push([x, y]);
+    }
+  }
+  // reparto de las divisiones extra: gana la celda con mayor area por parte (max 3 partes)
+  const parts = rows.map(() => 1);
+  for (let extra = target - n; extra > 0; extra--) {
+    let best = -1, bv = 0;
+    for (let k = 0; k < n; k++) {
+      if (parts[k] >= 3 || cells[k].length < (parts[k] + 1) * 4) continue;
+      const v = cells[k].length / (parts[k] + 1);
+      if (v > bv) { bv = v; best = k; }
+    }
+    if (best < 0) break;
+    parts[best]++;
+  }
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const r = rows[k], m = parts[k];
+    if (m === 1) { out.push([r[0], r[1], r[2], r[3], k, null]); continue; }
+    const pts = cells[k];
+    const cx = pts.reduce((s, q) => s + q[0], 0) / pts.length, cy = pts.reduce((s, q) => s + q[1], 0) / pts.length;
+    let sxx = 0, syy = 0;
+    for (const q of pts) { sxx += (q[0] - cx) ** 2; syy += (q[1] - cy) ** 2; }
+    const vertical = syy >= sxx; // eje largo vertical -> cortes Norte/Sur
+    const sorted = pts.slice().sort((a, b) => (vertical ? a[1] - b[1] : a[0] - b[0]) || a[0] - b[0] || a[1] - b[1]);
+    const labels = vertical ? (m === 2 ? ['N', 'S'] : ['N', 'C', 'S']) : (m === 2 ? ['O', 'E'] : ['O', 'C', 'E']);
+    const names = { N: 'Norte', S: 'Sur', E: 'Oriental', O: 'Occidental', C: 'Centro' };
+    for (let j = 0; j < m; j++) {
+      const chunk = sorted.slice(Math.floor((j * sorted.length) / m), Math.floor(((j + 1) * sorted.length) / m));
+      let px = chunk.reduce((s, q) => s + q[0], 0) / chunk.length, py = chunk.reduce((s, q) => s + q[1], 0) / chunk.length;
+      for (let t = 0; t < 12 && !inPolys(polys, px, py); t++) { px += (cx - px) * 0.35; py += (cy - py) * 0.35; }
+      if (!inPolys(polys, px, py)) { px = chunk[0][0]; py = chunk[0][1]; }
+      const [lat, lon] = fromXY(px, py);
+      out.push([r[0] + ' ' + names[labels[j]], +lat.toFixed(3), +lon.toFixed(3), r[3], k, labels[j]]);
+    }
+  }
+  return out;
+}
+
 export const TERRAIN = {
   S: { name: 'Selva', color: '#2f5a2a' },
   M: { name: 'Montaña', color: '#6b5a45' },

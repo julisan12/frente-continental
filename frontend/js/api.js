@@ -84,8 +84,8 @@ async function req(method, path, body, opts = {}) {
 
 const gp = (id) => '/games/' + encodeURIComponent(id);
 export const health = (opts) => req('GET', '/health', undefined, opts);
-export const getMap = () => req('GET', '/map');
-export const newGame = (player) => req('POST', '/games', { player });
+export const getMap = (variant) => req('GET', '/map' + (variant ? '?variant=' + encodeURIComponent(variant) : ''));
+export const newGame = (player, variant) => req('POST', '/games', variant ? { player, variant } : { player });
 export const getGame = (id, opts) => req('GET', gp(id), undefined, opts);
 export const addOrder = (id, order) => req('POST', gp(id) + '/orders', order);
 export const delOrder = (id, oid) => req('DELETE', gp(id) + '/orders/' + encodeURIComponent(oid));

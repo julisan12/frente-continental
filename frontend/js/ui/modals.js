@@ -3,6 +3,8 @@ import { h, ALIGN } from '../util.js';
 import { icon } from '../icons.js';
 import { getState, setState, cname, setGame } from '../state.js';
 import * as api from '../api.js';
+import { VARIANTS, variant_of } from '../data/provinces.js';
+import { count_provinces } from '../engine/provinces.js';
 
 let F = {};
 import('../engine/features.js').then((m) => { F = m; }).catch(() => {});
@@ -52,35 +54,81 @@ export function amountModal({ title, text, min = 1, max = 100, value = 10, step 
   });
 }
 
+const LSV = {
+  get() { try { return localStorage.getItem('fc.variant'); } catch (e) { return null; } },
+  set(v) { try { localStorage.setItem('fc.variant', v); } catch (e) { /* sin almacenamiento */ } },
+};
+
+// Silueta del mapa (SVG) a partir de los path de los paises de la variante.
+function silhouette(countries, viewBox) {
+  const paths = countries.map((c) => `<path d="${c.path}" fill="${c.color || '#8a7a55'}" stroke="rgba(10,15,25,.7)" stroke-width="0.8"/>`).join('');
+  return `<svg viewBox="${viewBox}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${paths}</svg>`;
+}
+
+/** Elige mapa y pais. Devuelve {id, variant} o null. */
 export function startPicker({ canCancel = false } = {}) {
   const S = getState();
+  const local = api.isLocal();
   return new Promise((res) => {
     let sel = null;
     let m;
-    const list = [...S.map.countries].sort((a, b) => a.name.localeCompare(b.name, 'es'));
-    const btnGo = h('button', { class: 'btn primary', disabled: true, onclick: () => { m.close(); res(sel); } }, 'Comenzar partida');
+    let variant = LSV.get();
+    if (!VARIANTS[variant] || (!local && variant !== 'latam')) variant = 'latam';
+    const btnGo = h('button', { class: 'btn primary', disabled: true, onclick: () => { LSV.set(variant); m.close(); res({ id: sel, variant }); } }, 'Comenzar partida');
     const info = h('p', { class: 'muted small' }, 'Elige el país que gobernarás.');
-    const cells = list.map((c) => {
-      const b = h('button', {
-        class: 'item', 'aria-pressed': 'false', 'data-id': c.id,
+    const mapRow = h('div', { class: 'mapopts' });
+    const grid = h('div', { class: 'pickgrid' });
+    let full = S.map && S.map.variant === 'latam' ? S.map : null;
+
+    function renderCountries() {
+      const ids = VARIANTS[variant].ids;
+      const list = ((full || S.map).countries).filter((c) => !ids || ids.includes(c.id)).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+      if (sel && !list.some((c) => c.id === sel)) { sel = null; btnGo.disabled = true; info.textContent = 'Elige el país que gobernarás.'; }
+      grid.replaceChildren(...list.map((c) => h('button', {
+        class: 'item', 'aria-pressed': String(c.id === sel), 'data-id': c.id,
         onclick: () => {
           sel = c.id;
-          cells.forEach((x) => x.setAttribute('aria-pressed', x.dataset.id === c.id ? 'true' : 'false'));
+          [...grid.children].forEach((x) => x.setAttribute('aria-pressed', x.dataset.id === c.id ? 'true' : 'false'));
           btnGo.disabled = false;
           info.textContent = `${c.name} · ${ALIGN[c.alignment] || c.alignment} · Poder ${c.power}`;
         },
-      }, h('span', { class: 'grow' }, c.name), h('span', { class: 'muted small' }, 'Poder ' + c.power));
-      return b;
-    });
+      }, h('span', { class: 'grow' }, c.name), h('span', { class: 'muted small' }, 'Poder ' + c.power))));
+    }
+    function renderMaps() {
+      const countries = (full || S.map).countries;
+      mapRow.replaceChildren(...Object.entries(VARIANTS).map(([k, v]) => {
+        const cs = countries.filter((c) => !v.ids || v.ids.includes(c.id));
+        const np = count_provinces(k);
+        const off = !local && k !== 'latam';
+        return h('button', {
+          class: 'mapopt', 'aria-pressed': String(k === variant), disabled: off || null, 'data-variant': k,
+          onclick: () => { variant = k; renderMaps(); renderCountries(); },
+        },
+        h('span', { class: 'mapsil', html: silhouette(cs, v.viewBox) }),
+        h('span', { class: 'maptxt' },
+          h('strong', null, v.name),
+          h('span', { class: 'small muted' }, v.desc),
+          h('span', { class: 'small' }, `${cs.length} países${np ? ' · ~' + np + ' provincias' : ''}`),
+          off ? h('span', { class: 'small muted' }, 'Solo en modo sin conexión') : null));
+      }));
+    }
+    renderMaps(); renderCountries();
+    if (!full) {
+      // el mapa activo puede ser otra variante: se pide el completo para dibujar ambas siluetas
+      api.getMap('latam').then((mm) => { if (mm && mm.countries) { full = mm; renderMaps(); renderCountries(); } }).catch(() => {});
+    }
     m = openModal([
-      h('h2', null, 'Elige tu país'),
-      h('p', { class: 'muted small' }, 'América Latina, 1962. La Guerra Fría llega al continente.'),
-      h('div', { class: 'pickgrid' }, cells),
+      h('h2', null, 'Nueva partida'),
+      h('p', { class: 'muted small' }, 'Latinoamérica, 1962. La Guerra Fría llega al continente. Elige el mapa y tu país.'),
+      h('h3', { class: 'tag-uc' }, 'Mapa'),
+      mapRow,
+      h('h3', { class: 'tag-uc' }, 'País'),
+      grid,
       info,
       h('div', { class: 'acts' },
         canCancel ? h('button', { class: 'btn', onclick: () => { m.close(); res(null); } }, 'Cancelar') : null,
         btnGo),
-    ], { dismissible: canCancel, label: 'Elegir país', onDismiss: () => res(null) });
+    ], { dismissible: canCancel, label: 'Elegir mapa y país', onDismiss: () => res(null) });
   });
 }
 
@@ -161,14 +209,18 @@ export function gameOver(game) {
   });
 }
 
-export async function newGameFlow(first = false) {
-  const id = await startPicker({ canCancel: !first });
-  if (!id) return false;
-  const g = await api.newGame(id);
+/** Flujo de partida nueva. loadMap(variant) (de main.js) recarga el mapa si la variante cambia. */
+export async function newGameFlow(first = false, loadMap = null) {
+  const pick = await startPicker({ canCancel: !first });
+  if (!pick) return false;
+  const g = await api.newGame(pick.id, pick.variant);
   if (!g) {
-    if (first) return newGameFlow(true);
+    if (first) return newGameFlow(true, loadMap);
     return false;
   }
+  const v = variant_of(g);
+  const cur = (getState().map && getState().map.variant) || 'latam';
+  if (loadMap && v !== cur) { try { await loadMap(v); } catch (e) { /* se queda el mapa actual */ } }
   setState({ selected: null, diploTarget: null, screen: 'map' });
   setGame(g);
   return true;

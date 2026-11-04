@@ -1,9 +1,9 @@
 // Provincias funcionales: cada pais se divide en provincias con dueno propio, recursos,
 // edificios (base, fabrica, refineria, mina, granja), cola de construccion y conquista por provincia.
 // Estado en game.ext.prov / game.ext.cown. Puro: sin DOM.
-import { PROV, toXY } from '../data/provinces.js';
+import { PROV, toXY, VARIANTS, variant_of, subdivide } from '../data/provinces.js';
 import { capture } from './military.js';
-import { at_war, divisions_of, sync_armies, land_adjacency } from './state.js';
+import { at_war, divisions_of, sync_armies, land_adjacency, use_variant, all_countries } from './state.js';
 import * as UNITS from './units.js';
 
 export const BUILD = {
@@ -39,36 +39,70 @@ const CAP_RE = /capital|distrito federal|ciudad de|bogot|caracas|lima|santiago|b
 function hash(s) { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return x >>> 0; }
 
 // ------------------------------------------------------------------ geometria estatica
+// Tanda 2: la geometria depende de la variante de mapa y de la densidad (1 = original, 2 = subdividida).
+// Se cachea una geometria por clave 'variante|densidad'; prov_geo() devuelve la activa.
+const _geos = {};
 let _geo = null;
+
+function geoKey(game) {
+  const dens = (game && game.ext && game.ext.geo && game.ext.geo.density) || 1;
+  return { variant: variant_of(game), density: dens === 2 ? 2 : 1 };
+}
 /**
- * Tanda 2 (trabajador A): selecciona la geometria de provincias que corresponde a la partida
- * (variante de mapa game.variant 'latam'|'sur' y densidad game.ext.geo.density 1|2). Las partidas
- * antiguas (sin game.ext.geo) deben seguir usando la geometria original (densidad 1). Debe ser barata
- * (se llama en cada accion/turno) y mantener prov_geo() coherente con ella.
+ * Selecciona la geometria de provincias de la partida (variante + densidad). Las partidas antiguas
+ * (sin game.ext.geo) usan densidad 1 = la lista original. Barata: cachea por clave.
  */
 export function use_game_geo(game) {
-  void game; // stub: el trabajador A lo implementa
+  const k = geoKey(game);
+  use_variant(k.variant);
+  const key = k.variant + '|' + k.density;
+  _geo = _geos[key] || (_geos[key] = build_geo(k.variant, k.density));
 }
-/** Lista estatica de provincias: {pid, c, i, n, t, x, y} + vecinos. */
-export function prov_geo() {
-  if (_geo) return _geo;
+/** Filas de provincias de un pais para la densidad pedida. */
+function rows_for(cid, density) {
+  const base = PROV[cid];
+  if (density < 2) return base.map((r, i) => [r[0], r[1], r[2], r[3], i, null]);
+  const c = all_countries().find((x) => x.id === cid);
+  return subdivide(cid, base, c && c.path);
+}
+/** Numero de provincias de una variante (densidad 2) sin alterar la geometria activa. null si faltan datos. */
+const _cnt = {};
+export function count_provinces(variant) {
+  const v = VARIANTS[variant] ? variant : 'latam';
+  if (_cnt[v] != null) return _cnt[v];
+  try {
+    const ids = VARIANTS[v].ids;
+    let n = 0;
+    for (const cid of Object.keys(PROV)) if (!ids || ids.includes(cid)) n += rows_for(cid, 2).length;
+    return (_cnt[v] = n);
+  } catch (e) { return null; }
+}
+function build_geo(variant, density) {
+  const ids = VARIANTS[variant].ids;
   const list = [];
-  for (const [cid, rows] of Object.entries(PROV)) {
-    rows.forEach((r, i) => { const [x, y] = toXY(r[1], r[2]); list.push({ pid: cid + ':' + i, c: cid, i, n: r[0], t: r[3], x, y }); });
+  for (const cid of Object.keys(PROV)) {
+    if (ids && !ids.includes(cid)) continue;
+    rows_for(cid, density).forEach((r, i) => {
+      const [x, y] = toXY(r[1], r[2]);
+      const o = { pid: cid + ':' + i, c: cid, i, n: r[0], t: r[3], x, y };
+      if (density >= 2) { o.parent = PROV[cid][r[4]][0]; o.sub = r[5]; }
+      list.push(o);
+    });
   }
   const byId = {}; for (const p of list) byId[p.pid] = p;
   let land = null; try { land = land_adjacency(); } catch (e) { land = null; }
   const adj = {}; for (const p of list) adj[p.pid] = new Set();
+  const intra = density >= 2 ? 30 : 40, inter = density >= 2 ? 24 : 30, keepN = density >= 2 ? 4 : 5;
   for (const p of list) {
     const near = [];
     for (const q of list) {
       if (q === p) continue;
       if (q.c !== p.c && !(land && land[p.c] && land[p.c].has(q.c))) continue;
       const d = Math.hypot(q.x - p.x, q.y - p.y);
-      if (d < (q.c === p.c ? 40 : 30)) near.push([d, q.pid]);
+      if (d < (q.c === p.c ? intra : inter)) near.push([d, q.pid]);
     }
     near.sort((a, b) => a[0] - b[0]);
-    for (const [, qid] of near.slice(0, 5)) { adj[p.pid].add(qid); adj[qid].add(p.pid); }
+    for (const [, qid] of near.slice(0, keepN)) { adj[p.pid].add(qid); adj[qid].add(p.pid); }
   }
   // garantiza que cada pais tenga al menos un vinculo con cada vecino terrestre
   if (land) {
@@ -84,7 +118,11 @@ export function prov_geo() {
       }
     }
   }
-  _geo = { list, byId, adj };
+  return { list, byId, adj };
+}
+/** Lista estatica de provincias activa: {pid, c, i, n, t, x, y[, parent, sub]} + vecinos. */
+export function prov_geo() {
+  if (!_geo) use_game_geo(null);
   return _geo;
 }
 
@@ -92,6 +130,8 @@ export function prov_geo() {
 export function init_prov(game) {
   const e = game.ext;
   if (e.prov && e.cown) return;
+  if (!e.prov && !e.geo) e.geo = { density: 2 }; // partida nueva: geometria densa
+  use_game_geo(game);
   const G = prov_geo();
   e.prov = {}; e.cown = {};
   const byC = {};
@@ -104,7 +144,11 @@ export function init_prov(game) {
   }
   for (const [cid, ps] of Object.entries(byC)) {
     e.cown[cid] = game.countries[cid].owner;
-    let cap = ps.find((p) => CAP_RE.test(p.n));
+    let cap = ps.find((p) => CAP_RE.test(p.parent || p.n));
+    if (cap && cap.parent) { // subdividida: la parte mas cercana al centroide original
+      const o = PROV[cid].find((r) => r[0] === cap.parent), [ox, oy] = o ? toXY(o[1], o[2]) : [cap.x, cap.y];
+      cap = ps.filter((p) => p.parent === cap.parent).reduce((b, p) => (Math.hypot(p.x - ox, p.y - oy) < Math.hypot(b.x - ox, b.y - oy) ? p : b));
+    }
     if (!cap) {
       const cx = ps.reduce((s, p) => s + p.x, 0) / ps.length, cy = ps.reduce((s, p) => s + p.y, 0) / ps.length;
       cap = ps.reduce((b, p) => (Math.hypot(p.x - cx, p.y - cy) < Math.hypot(b.x - cx, b.y - cy) ? p : b));

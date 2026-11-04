@@ -5,12 +5,34 @@
 import * as C from './constants.js';
 import { PortableRandom } from './rng.js';
 import { pyRound, pymod, floordiv, cmp, sortedBy } from './py.js';
+import { VARIANTS } from '../data/provinces.js';
 
 // ---------------------------------------------------------------- datos estaticos
 let _countries = null;
 let _index = null;
 let _adjMaps = null;
 let _adjLists = null;
+let _variantIds = null; // Tanda 2: ids de la variante de mapa activa (null = todos)
+let _variant = 'latam';
+
+/** Variante de mapa activa ('latam' | 'sur'). */
+export function current_variant() { return _variant; }
+
+/** Fija la variante de mapa: load_countries()/country_index() solo ven sus paises. 'latam' restaura todo. */
+export function use_variant(variant) {
+  const v = VARIANTS[variant] ? variant : 'latam';
+  const ids = VARIANTS[v].ids;
+  const same = v === _variant && (ids ? _variantIds === ids : _variantIds === null);
+  _variant = v;
+  _variantIds = ids || null;
+  if (!same) { _index = null; _adjMaps = null; _adjLists = null; }
+}
+
+/** Lista completa de paises (sin filtrar por variante). */
+export function all_countries() {
+  if (!_countries) throw new Error('Datos de paises no cargados: llame a set_countries_data().');
+  return _countries;
+}
 
 /** Registra la lista de paises (equivale a leer countries.json). Reinicia las caches. */
 export function set_countries_data(list) {
@@ -18,12 +40,18 @@ export function set_countries_data(list) {
   _index = null;
   _adjMaps = null;
   _adjLists = null;
+  _filtered = null;
 }
 
-/** Devuelve la lista de los 24 paises (hay que haber llamado set_countries_data). */
+let _filtered = null;
+/** Devuelve la lista de paises de la variante activa (hay que haber llamado set_countries_data). */
 export function load_countries() {
   if (!_countries) throw new Error('Datos de paises no cargados: llame a set_countries_data().');
-  return _countries;
+  if (!_variantIds) return _countries;
+  if (!_filtered || _filtered.ids !== _variantIds || _filtered.src !== _countries) {
+    _filtered = { ids: _variantIds, src: _countries, list: _countries.filter((c) => _variantIds.includes(c.id)) };
+  }
+  return _filtered.list;
 }
 
 /** Devuelve {id: datos estaticos}. */
@@ -419,15 +447,16 @@ function _new_game_id() {
 }
 
 /** Crea una partida nueva con el pais `player`. */
-export function new_game(player, seed = null, game_id = null) {
+export function new_game(player, seed = null, game_id = null, variant = 'latam') {
+  use_variant(variant);
   const idx = country_index();
-  if (!(player in idx)) throw new Error('País desconocido.');
+  if (!(player in idx)) throw new Error(_variant !== 'latam' && all_countries().some((c) => c.id === player) ? 'País fuera del mapa elegido.' : 'País desconocido.');
   if (seed === null || seed === undefined) seed = 1 + Math.floor(Math.random() * 1000000);
   else seed = Math.trunc(Number(seed));
   const countries = {};
   for (const c of load_countries()) countries[c.id] = _make_country(c);
   const game = {
-    id: game_id || _new_game_id(), version: C.VERSION, player,
+    id: game_id || _new_game_id(), version: C.VERSION, player, variant: _variant,
     turn: 1, date: date_for_turn(1),
     countries,
     relations: {}, treaties: [], wars: [], divisions: [], orders: [],

@@ -82,6 +82,13 @@ del país en proporciones 60/40 (tropas) y 30/70 (vehículos).
   (No hay derrota por puntuación al límite: la industria de la IA crece sin tope y haría la derrota automática.)
 - Resolución de turno determinista con `seed` (PortableRandom, sfc32 + cyrb128: idéntico en Python y JS).
 
+## Mapa y provincias (Tanda 2)
+- **Variantes de mapa** (`data/provinces.js` → `VARIANTS`): `latam` (24 países, viewBox `0 0 500 535`) y `sur` (12 países de Sudamérica, viewBox `200 105 290 410`). `game.variant` guarda la elección (ausente = `latam`). Se elige al iniciar partida; el selector recuerda la última en `localStorage` (`fc.variant`). El modo servidor (Python) solo ofrece `latam`.
+- `engine/state.js` filtra los países con `use_variant(variant)`: `load_countries()`, `country_index()`, adyacencias y `victory_target()` (6 en `sur`, 12 en `latam`) solo ven los de la variante. `localapi` llama a `use_variant` + `use_game_geo` en cada operación sobre una partida (`activate`). `GET /map?variant=sur`.
+- **Densidad de provincias** (`game.ext.geo.density`): `1` = lista original de departamentos (404 provincias; partidas guardadas de la Tanda 1, sin `ext.geo`, se siguen jugando igual) y `2` = subdividida (partidas nuevas, ≈640 en `latam` y ≈433 en `sur`). `init_prov` fija `ext.geo = {density: 2}` solo al crear las provincias desde cero.
+- `subdivide(cid, filas, path)` es determinista: objetivo `clamp(round(2n), 12, 48)` limitado a `área/16`; parte las celdas Voronoi (muestreo en rejilla dentro del polígono del país) más grandes en 2 o 3 por su eje principal, con nombres «X Norte/Sur» o «X Occidental/Oriental» (3 partes: Centro). Cada provincia nueva lleva `parent` y `sub`. La capital es la parte más cercana al centroide original.
+- Adyacencia de provincias con densidad 2: 4 vecinas más cercanas (radio 30 propio / 24 entre países) y al menos un enlace por frontera terrestre.
+
 ## API REST (prefijo /api)
 - `GET  /api/health` → {ok:true, version}
 - `GET  /api/map` → {viewBox:"0 0 500 535", countries:[{id,name,color,path,neighbors,sea,power,alignment,resources}]}

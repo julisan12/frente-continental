@@ -4,7 +4,7 @@
 import { PROV, toXY } from '../data/provinces.js';
 import { capture } from './military.js';
 import { at_war, divisions_of, sync_armies, land_adjacency } from './state.js';
-import { on_prov_capture } from './units.js';
+import * as UNITS from './units.js';
 
 export const BUILD = {
   base:      { name: 'Base militar', cost: 60, turns: 2, max: 3, icon: 'base' },
@@ -12,6 +12,11 @@ export const BUILD = {
   refineria: { name: 'Refinería',    cost: 70, turns: 2, max: 3, icon: 'refinery', need: ['petroleo', 'gas'] },
   mina:      { name: 'Mina',         cost: 55, turns: 2, max: 3, icon: 'mine', need: ['minerales', 'cobre'] },
   granja:    { name: 'Granja',       cost: 35, turns: 1, max: 3, icon: 'agri' },
+  lab:       { name: 'Laboratorio',  cost: 90, turns: 3, max: 2, icon: 'lab', reqFn: (p) => (p.b.fabrica >= 1 || p.cap) },
+  carretera: { name: 'Carretera',    cost: 45, turns: 2, max: 3, icon: 'road' },
+  ferrocarril: { name: 'Ferrocarril', cost: 80, turns: 3, max: 2, icon: 'rail', req: { carretera: 1 } },
+  fuerte:    { name: 'Fortaleza',    cost: 85, turns: 3, max: 2, icon: 'fort' },
+  linea:     { name: 'Línea defensiva', cost: 40, turns: 1, max: 2, icon: 'trench' },
 };
 export const RES = {
   petroleo: { name: 'Petróleo', icon: 'oil' },
@@ -86,7 +91,7 @@ export function init_prov(game) {
     (byC[p.c] = byC[p.c] || []).push(p);
     const opts = RES_BY_T[p.t] || [null];
     const r = opts[hash(p.pid) % opts.length];
-    e.prov[p.pid] = { c: p.c, o: game.countries[p.c].owner, r, cap: false, g: 0, b: { base: 0, fabrica: 0, refineria: 0, mina: 0, granja: 0 }, q: null };
+    e.prov[p.pid] = { c: p.c, o: game.countries[p.c].owner, r, cap: false, g: 0, b: { base: 0, fabrica: 0, refineria: 0, mina: 0, granja: 0, lab: 0, carretera: 0, ferrocarril: 0, fuerte: 0, linea: 0 }, q: null };
   }
   for (const [cid, ps] of Object.entries(byC)) {
     e.cown[cid] = game.countries[cid].owner;
@@ -111,7 +116,8 @@ export function prov_defense(game, pid) {
     const n = provs_of_country(game, p.c).filter((q) => P(game)[q].o === p.o).length || 1;
     gar += divisions_of(game, p.o).filter((d) => d.location === p.c).reduce((s, d) => s + d.troops + d.tanks * 0.03 + d.planes * 0.04, 0) / n;
   }
-  const mul = (TERR_DEF[gp && gp.t] || 1) * (1 + 0.35 * (p.b.base || 0)) * (p.cap ? 1.25 : 1);
+  const fortBonus = 1 + 0.4 * (p.b.fuerte || 0) + 0.2 * (p.b.linea || 0);
+  const mul = (TERR_DEF[gp && gp.t] || 1) * (1 + 0.35 * (p.b.base || 0)) * (p.cap ? 1.25 : 1) * fortBonus;
   return Math.round((gar + 4) * mul * 10) / 10;
 }
 
@@ -168,7 +174,9 @@ export function prov_attack(game, ent, pid, rng, free) {
     _loseTroops(game, old, att * 0.15, p.c);
     p.o = ent; p.g = Math.round(att * 0.2 * 10) / 10; p.q = null;
     p.b.base = Math.max(0, p.b.base - 1);
-    try { on_prov_capture(game, ent, pid, old); } catch (e) { /* botin/descontento opcionales */ }
+    p.b.linea = 0;
+    p.b.fuerte = Math.max(0, (p.b.fuerte || 0) - 1);
+    try { UNITS.on_prov_capture(game, ent, pid, old); } catch (e) { /* botin/descontento opcionales */ }
     // pais completo: si cae la capital o todas sus provincias
     const own = game.countries[p.c].owner;
     const rest = provs_of_country(game, p.c).filter((q) => pr[q].o === own);
@@ -191,6 +199,12 @@ export function prov_build(game, ent, pid, kind, free) {
   if (p.o !== ent) return { ok: false, error: 'La provincia no es tuya.' };
   if (p.q) return { ok: false, error: 'Ya hay una obra en curso.' };
   if (B.need && !B.need.includes(p.r)) return { ok: false, error: B.name + ' requiere ' + B.need.map((x) => RES[x].name).join(' o ') + '.' };
+  if (B.reqFn && !B.reqFn(p)) return { ok: false, error: B.name + ' requiere fábrica o capital.' };
+  if (B.req) {
+    for (const [k, v] of Object.entries(B.req)) {
+      if ((p.b[k] || 0) < v) return { ok: false, error: B.name + ' requiere ' + BUILD[k].name + ' nivel ' + v + '.' };
+    }
+  }
   const lvl = p.b[kind] || 0;
   if (lvl >= B.max) return { ok: false, error: 'Nivel máximo.' };
   const cost = Math.round(B.cost * (1 + 0.5 * lvl));
@@ -229,10 +243,27 @@ export function prov_turn(game, rng, lines) {
     }
     if (!game.countries[p.o]) continue;
     if (p.r) add(p.o, 'm', 1.5);
-    add(p.o, 'm', 3 * p.b.fabrica + 6 * p.b.refineria + 4 * p.b.mina + 2 * p.b.granja);
+    add(p.o, 'm', 3 * p.b.fabrica + 6 * p.b.refineria + 4 * p.b.mina + 2 * p.b.granja + 0.6 * (p.b.carretera || 0) + 1.5 * (p.b.ferrocarril || 0));
     add(p.o, 's', 0.15 * p.b.granja);
     add(p.o, 't', 0.6 * p.b.base);
     if (p.g > 0 && p.o !== game.countries[p.c].owner) p.g = Math.min(60, p.g + 0.5 * p.b.base);
+  }
+  // 2b) carreteras: recuperacion de organizacion de divisiones
+  const roadByOwner = {};
+  for (const [pid, p] of Object.entries(pr)) {
+    if (!game.countries[p.o]) continue;
+    const cid = p.c;
+    if (!roadByOwner[p.o]) roadByOwner[p.o] = {};
+    if (!roadByOwner[p.o][cid]) roadByOwner[p.o][cid] = { sum: 0, cnt: 0 };
+    roadByOwner[p.o][cid].sum += (p.b.carretera || 0);
+    roadByOwner[p.o][cid].cnt += 1;
+  }
+  for (const [o, byC] of Object.entries(roadByOwner)) {
+    for (const [cid, { sum, cnt }] of Object.entries(byC)) {
+      const avg = Math.round(sum / cnt);
+      const ds = divisions_of(game, o).filter((d) => d.location === cid);
+      for (const d of ds) d.org = Math.min(100, (d.org || 0) + 2 * avg);
+    }
   }
   for (const [o, v] of Object.entries(gain)) {
     const c = game.countries[o]; if (!c) continue;
@@ -248,7 +279,17 @@ export function prov_turn(game, rng, lines) {
     const mine = Object.keys(pr).filter((pid) => pr[pid].o === o);
     if (rng.random() < 0.3 && mine.length) {
       const pid = mine[Math.floor(rng.random() * mine.length)]; const p = pr[pid];
-      const opts = Object.keys(BUILD).filter((k) => (!BUILD[k].need || BUILD[k].need.includes(p.r)) && p.b[k] < BUILD[k].max);
+      const opts = Object.keys(BUILD).filter((k) => {
+        if (p.b[k] >= BUILD[k].max) return false;
+        if (BUILD[k].need && !BUILD[k].need.includes(p.r)) return false;
+        if (BUILD[k].reqFn && !BUILD[k].reqFn(p)) return false;
+        if (BUILD[k].req) {
+          for (const [rk, rv] of Object.entries(BUILD[k].req)) {
+            if ((p.b[rk] || 0) < rv) return false;
+          }
+        }
+        return true;
+      });
       const k = opts[Math.floor(rng.random() * opts.length)];
       if (k && (game.countries[o].money || 0) > build_cost(p, k) * 2) prov_build(game, o, pid, k, false);
     }
@@ -264,17 +305,118 @@ export function prov_turn(game, rng, lines) {
   }
 }
 
-// ------------------------------------------------------------------ interfaz Tanda 1 (la rellena el trabajador C)
+// ------------------------------------------------------------------ interfaz Tanda 1
 /**
- * Acciones de provincia del jugador no cubiertas por prov_attack/prov_build (p.ej. {action:'prov_recruit', pid, kind},
- * {action:'prov_line', pid}). Devuelve {ok,msg}|{ok:false,error} o null si la accion no es de este modulo.
+ * Rendimientos de una provincia por turno: {money, food, fuel, goods, metal}.
+ * money = 1.5 por recurso + edificios + carretera/ferrocarril.
+ * food = 1.5*agro + 1.2*granja; fuel = 2*(petroleo/gas) + 2.5*refineria;
+ * metal = 1.5*(minerales/cobre) + 2*mina; goods = 1.0*fabrica + 0.5*madera.
  */
-export function prov_action(game, ent, body) { void game; void ent; void body; return null; }
+export function prov_yield(game, pid) {
+  const pr = P(game); const p = pr && pr[pid];
+  if (!p) return { money: 0, food: 0, fuel: 0, goods: 0, metal: 0 };
+  let money = 0, food = 0, fuel = 0, goods = 0, metal = 0;
+  if (p.r === 'agro') food += 1.5;
+  if (p.r === 'petroleo' || p.r === 'gas') fuel += 2;
+  if (p.r === 'minerales' || p.r === 'cobre') metal += 1.5;
+  if (p.r === 'madera') goods += 0.5;
+  if (p.r) money += 1.5;
+  food += 1.2 * (p.b.granja || 0);
+  fuel += 2.5 * (p.b.refineria || 0);
+  metal += 2 * (p.b.mina || 0);
+  goods += 1.0 * (p.b.fabrica || 0);
+  money += 3 * (p.b.fabrica || 0) + 6 * (p.b.refineria || 0) + 4 * (p.b.mina || 0) + 2 * (p.b.granja || 0) + 0.6 * (p.b.carretera || 0) + 1.5 * (p.b.ferrocarril || 0);
+  return { money: Math.round(money * 10) / 10, food: Math.round(food * 10) / 10, fuel: Math.round(fuel * 10) / 10, goods: Math.round(goods * 10) / 10, metal: Math.round(metal * 10) / 10 };
+}
+
+/**
+ * Acciones de provincia del jugador no cubiertas por prov_attack/prov_build (p.ej. {action:'prov_recruit', pid, kind}).
+ * Devuelve {ok,msg}|{ok:false,error} o null si la accion no es de este modulo.
+ */
+export function prov_action(game, ent, body) {
+  if (body.action === 'prov_recruit') {
+    const pr = P(game); const p = pr && pr[body.pid];
+    if (!p) return { ok: false, error: 'Provincia desconocida.' };
+    if (p.o !== ent) return { ok: false, error: 'La provincia no es tuya.' };
+    if (!p.cap && (p.b.base || 0) < 1) return { ok: false, error: 'Requiere base militar o capital.' };
+    // Delega en UNITS.action (el trabajador D lo completará)
+    try {
+      const res = UNITS.action ? UNITS.action(game, { action: 'unit_recruit', kind: body.kind, pid: body.pid }) : null;
+      return res || { ok: false, error: 'Reclutamiento no implementado aún.' };
+    } catch (e) {
+      return { ok: false, error: 'Reclutamiento no disponible.' };
+    }
+  }
+  return null;
+}
+
 /** Suma de niveles de laboratorio en las provincias de la entidad (bono de investigacion). */
-export function prov_lab_levels(game, ent) { void game; void ent; return 0; }
+export function prov_lab_levels(game, ent) {
+  const pr = P(game); if (!pr) return 0;
+  let sum = 0;
+  for (const [pid, p] of Object.entries(pr)) {
+    if (p.o === ent) sum += (p.b.lab || 0);
+  }
+  return sum;
+}
+
 /** Multiplicador de defensa del territorio (pais) por fortalezas y lineas defensivas de sus provincias (>= 1). */
-export function country_defense_mult(game, target) { void game; void target; return 1.0; }
+export function country_defense_mult(game, target) {
+  const pr = P(game); if (!pr) return 1.0;
+  let fortSum = 0, lineSum = 0;
+  for (const [pid, p] of Object.entries(pr)) {
+    if (p.c === target) {
+      fortSum += (p.b.fuerte || 0);
+      lineSum += (p.b.linea || 0);
+    }
+  }
+  const fortMult = Math.min(0.4, fortSum * 0.08);
+  const lineMult = Math.min(0.2, lineSum * 0.04);
+  return 1.0 + fortMult + lineMult;
+}
+
 /** Multiplicador logistico de ataque de la division d (carreteras/ferrocarril en su territorio de origen) (>= 1). */
-export function attack_logistics_mult(game, d, target) { void game; void d; void target; return 1.0; }
+export function attack_logistics_mult(game, d, target) {
+  void target;
+  const pr = P(game); if (!pr) return 1.0;
+  const loc = d.location;
+  const provs = Object.keys(pr).filter((pid) => pr[pid].c === loc && pr[pid].o === d.owner);
+  if (provs.length === 0) return 1.0;
+  let railSum = 0, roadSum = 0;
+  for (const pid of provs) {
+    const p = pr[pid];
+    railSum += (p.b.ferrocarril || 0);
+    roadSum += (p.b.carretera || 0);
+  }
+  const railAvg = railSum / provs.length;
+  const roadAvg = roadSum / provs.length;
+  return Math.min(1.25, 1 + 0.06 * railAvg + 0.03 * roadAvg);
+}
+
 /** Decisiones pendientes para el carrusel: [{text, kind, screen}]. */
-export function prov_pending(game) { void game; return []; }
+export function prov_pending(game) {
+  const pr = P(game); if (!pr) return [];
+  const me = game.player; const list = [];
+  const mine = Object.keys(pr).filter((pid) => pr[pid].o === me);
+  const myMoney = (game.countries[me] && game.countries[me].money) || 0;
+  for (const pid of mine) {
+    const p = pr[pid]; const gp = prov_geo().byId[pid];
+    if (p.q) {
+      if (p.q.turns === 1) list.push({ text: 'Obra terminará: ' + BUILD[p.q.kind].name + ' en ' + gp.n, kind: 'eco', screen: 'map' });
+    } else {
+      const opts = Object.keys(BUILD).filter((k) => {
+        if (p.b[k] >= BUILD[k].max) return false;
+        if (BUILD[k].need && !BUILD[k].need.includes(p.r)) return false;
+        if (BUILD[k].reqFn && !BUILD[k].reqFn(p)) return false;
+        if (BUILD[k].req) {
+          for (const [rk, rv] of Object.entries(BUILD[k].req)) {
+            if ((p.b[rk] || 0) < rv) return false;
+          }
+        }
+        return build_cost(p, k) <= myMoney;
+      });
+      if (opts.length > 0 && list.length < 2) list.push({ text: 'Puedes construir en ' + gp.n, kind: 'eco', screen: 'map' });
+    }
+  }
+  return list;
+}

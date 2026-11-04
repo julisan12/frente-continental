@@ -1,1 +1,297 @@
-/* Tanda 1: estilos de prov (ver el modulo JS correspondiente) */
+/* Tanda 1: estilos del panel de provincia (provpanel.js) */
+
+.prov-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.pp-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pp-head-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pp-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cream);
+  font-family: var(--font-serif);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pp-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--brass-dim);
+  color: var(--cream);
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pp-sub {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pp-terr {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+.pp-stats {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.pp-stats b {
+  color: var(--cream);
+}
+
+.pp-unrest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.pp-res {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel2);
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.pp-res span {
+  color: var(--cream);
+  font-weight: 600;
+}
+
+.pp-res.muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pp-queue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--amber);
+  background: linear-gradient(135deg, rgba(185,138,62,0.25), rgba(185,138,62,0.15));
+  border: 1px solid var(--brass-dim);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--cream);
+}
+
+.pp-infra {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  background: var(--panel2);
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.pp-infra-lvl {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  background: var(--panel3);
+  border: 1px solid var(--brass-dim);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cream);
+}
+
+.pp-infra-fx {
+  color: var(--muted);
+}
+
+.pp-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+
+.pp-tabs button {
+  flex: 1;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.pp-tabs button.active {
+  background: linear-gradient(180deg, var(--btn-a), var(--btn-b));
+  border-color: var(--brass);
+  color: var(--cream);
+  box-shadow: 0 0 8px rgba(184,151,90,0.3);
+}
+
+.pp-builds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pp-b {
+  display: grid;
+  grid-template-columns: 32px 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 48px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: linear-gradient(180deg, var(--panel3), var(--panel2));
+  color: var(--text);
+  text-align: left;
+  transition: all 0.2s;
+}
+
+.pp-b:not(:disabled):hover {
+  background: linear-gradient(180deg, var(--btn-a), var(--btn-b));
+  border-color: var(--brass-dim);
+}
+
+.pp-b:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.pp-b:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pp-bn {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cream);
+}
+
+.pp-bl {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.pp-bc {
+  font-size: 11px;
+  color: var(--brass);
+  font-weight: 600;
+  text-align: right;
+  min-width: 70px;
+}
+
+.pp-b:disabled .pp-bc {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.pp-atk {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 52px;
+  padding: 8px 12px;
+  border: 1px solid var(--rust);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(154,74,66,0.25), rgba(107,49,44,0.15));
+  color: var(--cream);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  transition: all 0.2s;
+}
+
+.pp-atk:not(:disabled):hover {
+  background: linear-gradient(135deg, rgba(154,74,66,0.35), rgba(107,49,44,0.25));
+  border-color: #c0645a;
+  box-shadow: 0 0 12px rgba(154,74,66,0.4);
+}
+
+.pp-atk:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.pp-atk small {
+  font-size: 11px;
+  opacity: 0.85;
+  font-weight: 400;
+}
+
+.pp-odds {
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.pp-odds.odds-good {
+  background: var(--green-d);
+  color: var(--green-l);
+}
+
+.pp-odds.odds-mid {
+  background: rgba(185,138,62,0.3);
+  color: var(--amber);
+}
+
+.pp-odds.odds-bad {
+  background: var(--rust-d);
+  color: #c0645a;
+}
+
+.pp-msg {
+  padding: 10px 12px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: center;
+}

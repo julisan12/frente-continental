@@ -14,7 +14,7 @@
 //   { action:'form_create', name, divs:[ids] } / { action:'form_dissolve', id } / { action:'form_order', id, type, target }
 //
 import { ensure, ok, err, news, r1, r2 } from './extutil.js';
-import { sync_armies, at_war, is_sea_route, next_id, allies_of, raw_power } from './state.js';
+import { sync_armies, at_war, is_sea_route, next_id, allies_of, raw_power, is_adjacent } from './state.js';
 import { queue_order, OrderError } from './orders.js';
 import { stock_of } from './supply.js';
 import { prov_geo, prov_yield, prov_targets, prov_labc_level, BUILD } from './provinces.js';
@@ -44,11 +44,11 @@ export function kind_of(d) {
 //
 // FORMULA DE COMBATE (Tanda 3):
 //   ataque de una division  = (atk/4) x suelo.atk x emparejamiento(vs) x [armas combinadas 1,10] x [x1,33 marina por mar]
-//   defensa de una division = (def/5) x suelo.def / emparejamiento_enemigo x [armas combinadas 1,10]
+//   defensa de una division = (def/5) x suelo.def x emparejamiento(vs propio contra los atacantes) x [armas combinadas 1,10]
 //   atk/def ya incluyen +10 % por cada mejora investigada (unit_stats). El suelo es el terreno dominante del pais
 //   objetivo (soil_mods). El emparejamiento es la media, ponderada por poder, de lookup(vs, tipo_enemigo) sobre las
 //   divisiones enfrentadas (game.ext.battle); sin batalla en curso vale 1.
-//   perdidas (loss_mult) = lookup(dmg, enemigo) x suelo.dmg x [en carga x2] x [fortaleza -5 %/nivel defendiendo];
+//   perdidas (loss_mult) = (8/hp) x lookup(dmg, enemigo) x suelo.dmg x [en carga x2] x [fortaleza -5 %/nivel defendiendo];
 //   la artilleria a distancia no sufre perdidas al atacar.
 const AIR_CLS = new Set(['air', 'drone', 'heli', 'nav']);
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
@@ -145,7 +145,7 @@ export function loss_mult(game, d, opp, attacking) {
   if (!ut) return 1.0;
   if (attacking && (ut.tags || []).includes('ranged')) return 0;
   const list = _arr(opp);
-  let m = matchup_dmg(d, list);
+  let m = (8 / Math.max(1, ut.hp)) * matchup_dmg(d, list);
   // suelo: dominante del pais donde se combate (el del defensor)
   const where = attacking ? (list[0] && list[0].location) : d.location;
   if (where && game.ext) {
@@ -305,15 +305,16 @@ export function prov_strike_power(game, ent, pid) {
   if (!game.ext || !game.ext.prov) return null;
   let T = null;
   try { const gp = prov_geo().byId[pid]; T = gp && gp.t; } catch (e) { return null; }
+  const home = game.ext.prov[pid] && game.ext.prov[pid].c;
   let sum = 0;
   for (const d of game.divisions || []) {
     if (d.owner !== ent) continue;
+    if (home && d.location !== home && !is_adjacent(d.location, home)) continue;
     const kind = kind_of(d); const ut = ROSTER[kind];
     if (!ut || ut.static || ut.single || ut.onlyStatic) continue;
     if (!can_act(game, d)) continue;
     const st = unit_stats(game, d);
-    const base = (d.troops || 0) + (d.tanks || 0) * 0.03 + (d.planes || 0) * 0.04;
-    sum += base * (st.atk / 4) * (T ? soil_mods(kind, T).atk : 1);
+    sum += raw_power(d.troops || 0, d.tanks || 0, d.planes || 0) * (st.atk / 4) * (T ? soil_mods(kind, T).atk : 1) * (_in_combined_arms_formation(game, d) ? 1.1 : 1);
   }
   return Math.round(sum * 0.3 * 10) / 10;
 }
@@ -334,7 +335,8 @@ export function on_move(game, d, from, to) {
   const spd = unit_stats(game, d).spd;
   if (spd !== 1) return;
   const flat = TERRAIN_GROUP[_dominant_terrain(game, to)] === 'llano';
-  if (has(to, 'avenida') || flat) return;
+  if (has(to, 'avenida')) { d.org = Math.min(100, (d.org == null ? 80 : d.org) + 5); return; }
+  if (flat) return;
   d.st = 'marcha'; d.stt = game.turn;
 }
 
@@ -659,17 +661,9 @@ export function div_defense_mult(game, d, target) {
   const T = _dominant_terrain(game, target);
   if (T) m *= soil_mods(kind, T).def;
   const b = game.ext.battle;
-  if (b) m /= Math.max(0.25, matchup_vs_many(b.att, d));
+  if (b) m *= matchup_vs(d, b.att);
   if (_in_combined_arms_formation(game, d)) m *= 1.10;
   return m;
-}
-
-/** Emparejamiento medio de las divisiones `atts` (atacantes) contra la division d (su `vs` sobre el tipo de d). */
-function matchup_vs_many(atts, d) {
-  const dk = kind_of(d);
-  const list = _arr(atts);
-  if (!list.length) return 1;
-  return _wavg(list, (a) => { const u = ROSTER[kind_of(a)]; return u ? lookup(u.vs, dk) : 1; });
 }
 
 /** IA: recluta un tipo variado en una provincia con base/capital/taller/aeropuerto. */

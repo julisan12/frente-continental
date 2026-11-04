@@ -1,11 +1,10 @@
-// Carrusel de noticias tipo noticiero de TV con decisiones pendientes y noticias.
+// Carrusel de noticias tipo noticiero de TV (solo noticias; las decisiones pendientes están en tasks.js).
 import { h } from '../util.js';
 import { icon } from '../icons.js';
-import { setState } from '../state.js';
+import { goTo } from './tasks.js';
 
-// features.js lo crea otro agente: carga dinámica para no romper el enlazado de módulos.
-let F = {};
-import('../engine/features.js').then((m) => { F = m; }).catch(() => {});
+// Las decisiones pendientes se recolectan en tasks.js; se reexporta para quien las necesite.
+export { collectDecisions } from './tasks.js';
 
 const ICON_MAP = {
   war: 'sword', eco: 'coins', dip: 'rings', spy: 'target', tech: 'lab',
@@ -25,168 +24,78 @@ let tickerState = {
 
 /** Calcula una firma del contenido para detectar cambios */
 function contentSignature(items) {
-  return items.map((it) => `${it.prio}:${it.kind}:${it.text}:${it.screen}`).join('|');
+  return items.map((it) => `${it.kind}:${it.text}`).join('|');
 }
 
-/** Recolecta decisiones pendientes (prioridad alta) */
-function collectDecisions(g) {
-  const decisions = [];
-  const me = g.player;
-  const c = g.countries[me];
-
-  // Evento activo
-  if (g.active_event) {
-    decisions.push({ text: 'Evento pendiente: resolver decisión', kind: 'alert', screen: 'more', prio: 100 });
-  }
-
-  // Votación OEA sin votar
-  if (g.ext && Array.isArray(g.ext.oas)) {
-    const pending = g.ext.oas.find((o) => !o.player_vote && o.turn === g.turn);
-    if (pending) {
-      decisions.push({ text: 'Votación de la OEA pendiente', kind: 'alert', screen: 'diplomacy', prio: 90 });
-    }
-  }
-
-  // Sin investigación en curso
-  if (g.ext && g.ext.techs && g.ext.techs[me] && g.ext.techs[me].cur == null) {
-    const labs = g.ext.labs && g.ext.labs[me] ? g.ext.labs[me] : 0;
-    if (labs > 0) {
-      decisions.push({ text: 'Sin investigación seleccionada', kind: 'alert', screen: 'economy', prio: 70 });
-    }
-  }
-
-  // Sin enfoque nacional
-  if (g.ext && g.ext.policy && g.ext.policy[me] && g.ext.policy[me].focus == null && g.ext.policy[me].focus_id == null) {
-    decisions.push({ text: 'Sin enfoque nacional activo', kind: 'alert', screen: 'economy', prio: 75 });
-  }
-
-  // Pactos que expiran pronto
-  if (g.ext && Array.isArray(g.ext.pacts)) {
-    const expiring = g.ext.pacts.filter((p) => (p.a === me || p.b === me) && p.until && p.until <= g.turn + 2);
-    if (expiring.length > 0) {
-      const other = expiring[0].a === me ? expiring[0].b : expiring[0].a;
-      decisions.push({ text: `Pacto con ${other} expira pronto`, kind: 'alert', screen: 'diplomacy', prio: 60 });
-    }
-  }
-
-  // Dinero bajo o balance negativo
-  const summary = g.summary || {};
-  const dMoney = summary.deltas && summary.deltas.money != null ? summary.deltas.money : 0;
-  if (c.money < 20) {
-    decisions.push({ text: 'Tesorería crítica: quedan pocos fondos', kind: 'alert', screen: 'economy', prio: 80 });
-  } else if (summary.balance != null && summary.balance < 0 && dMoney < 0) {
-    decisions.push({ text: 'Déficit: el ejército cuesta más de lo que ingresas', kind: 'alert', screen: 'economy', prio: 80 });
-  }
-
-  // Divisiones con org < 40
-  const divs = (g.divisions || []).filter((d) => d.owner === me && d.org != null && d.org < 40);
-  if (divs.length > 0) {
-    decisions.push({ text: `${divs[0].name} necesita reorganizarse`, kind: 'alert', screen: 'army', prio: 50 });
-  }
-
-  // Órdenes en cola 0 cuando turno > 1 (sugerencia suave)
-  const orders = g.orders || [];
-  if (g.turn > 1 && orders.length === 0) {
-    decisions.push({ text: 'Sin órdenes para el turno', kind: 'alert', screen: 'map', prio: 30 });
-  }
-
-  // ext_pending de features.js
-  try {
-    if (F && typeof F.ext_pending === 'function') {
-      const pending = F.ext_pending(g);
-      if (Array.isArray(pending)) {
-        pending.forEach((p) => {
-          decisions.push({ text: p.text, kind: p.kind || 'alert', screen: p.screen || 'more', prio: 85 });
-        });
-      }
-    }
-  } catch (e) {
-    // Módulo opcional
-  }
-
-  return decisions;
-}
-
-/** Recolecta noticias recientes */
+/** Recolecta noticias recientes (solo noticias: las decisiones viven en «Por mi cuenta»). */
 function collectNews(g) {
   const news = [];
+  const cname = (id) => (g.countries && g.countries[id] && g.countries[id].name) || id;
 
-  // Últimas 8 de game.ext.news
+  // Últimas 12 de game.ext.news, más recientes primero.
   if (g.ext && Array.isArray(g.ext.news)) {
-    const recent = g.ext.news.slice(-8).reverse();
-    recent.forEach((n) => {
-      news.push({ text: `T${n.turn} · ${n.text}`, kind: n.kind || 'info', screen: 'more', prio: 10 });
+    g.ext.news.slice(-12).reverse().forEach((n) => {
+      news.push({ raw: n.text, text: `T${n.turn} · ${n.text}`, kind: n.kind || 'info', screen: 'more' });
     });
   }
 
-  // Últimas 4 de game.logs con kind war/victory/defeat/event
-  const logs = (g.logs || []).filter((l) => ['war', 'victory', 'defeat', 'event'].includes(l.kind)).slice(-4).reverse();
-  logs.forEach((l) => {
-    news.push({ text: `T${l.turn} · ${l.text}`, kind: l.kind, screen: 'more', prio: 5 });
+  // Últimos 6 registros de guerra/victoria/derrota/evento.
+  (g.logs || []).filter((l) => ['war', 'victory', 'defeat', 'event'].includes(l.kind)).slice(-6).reverse().forEach((l) => {
+    news.push({ raw: l.text, text: `T${l.turn} · ${l.text}`, kind: l.kind, screen: 'more' });
   });
 
+  // Batallas del último informe de turno.
+  const r = g.last_report;
+  if (r && Array.isArray(r.battles)) {
+    r.battles.forEach((b) => {
+      if (!b) return;
+      const t = typeof b === 'string' ? b : b.text
+        || `Batalla por ${b.target_name || (b.target ? cname(b.target) : '?')}: ${cname(b.attacker)} ${b.won ? 'vence' : 'es rechazado'}`
+          + (b.attack != null && b.defense != null ? ` (${Math.round(b.attack)} contra ${Math.round(b.defense)}).` : '.');
+      news.push({ raw: t, text: `T${r.turn != null ? r.turn : g.turn} · ${t}`, kind: 'war', screen: 'more' });
+    });
+  }
   return news;
 }
 
-/** Deduplica ítems por texto */
+/** Deduplica ítems por texto (sin el prefijo de turno). */
 function dedupe(items) {
   const seen = new Set();
   return items.filter((it) => {
-    if (seen.has(it.text)) return false;
-    seen.add(it.text);
+    const k = (it.raw || it.text).replace(/[.\s]+$/, '');
+    if (seen.has(k)) return false;
+    seen.add(k);
     return true;
   });
 }
 
-/** Recolecta todos los ítems del carrusel */
+/** Ítems del carrusel: solo noticias. */
 function collectItems(g) {
-  if (!g) return [];
-
-  const decisions = collectDecisions(g);
-  const news = collectNews(g);
-  const all = [...decisions, ...news];
-  const deduped = dedupe(all);
-
-  // Ordenar por prioridad descendente
-  return deduped.sort((a, b) => b.prio - a.prio);
+  return g ? dedupe(collectNews(g)) : [];
 }
 
-/** Navega a una pantalla y opcionalmente llama a showNews */
-function navigate(screen) {
-  if (screen === 'more') {
-    // Importar dinámicamente showNews para evitar ciclos
-    import('./more.js').then((m) => {
-      if (m.showNews) m.showNews();
-      setState({ screen });
-    }).catch(() => {
-      setState({ screen });
-    });
-  } else {
-    setState({ screen });
-  }
-}
+/** Toque en una noticia: Más → Noticias. */
+const navigate = () => goTo('more');
 
 /** Renderiza el carrusel */
 function renderTicker(items, currentIdx) {
   if (items.length === 0) return null;
 
   const item = items[currentIdx];
-  const isDecision = item.prio >= 50;
   const ic = ICON_MAP[item.kind] || 'info';
 
   // Contenedor principal
   const ticker = h('div', { class: 'news-ticker', role: 'region', 'aria-live': 'polite', 'aria-label': 'Carrusel de noticias' });
 
   // Pestaña izquierda
-  const tag = h('div', { class: 'ticker-tag ' + (isDecision ? 'decision' : 'news') },
-    isDecision ? 'DECISIÓN' : 'ÚLTIMA HORA');
+  const tag = h('div', { class: 'ticker-tag news' }, 'ÚLTIMA HORA');
 
   // Centro: ítem actual
   const content = h('button', {
     class: 'ticker-content',
     'aria-label': item.text,
     title: item.text,
-    onclick: () => navigate(item.screen),
+    onclick: navigate,
   }, icon(ic), h('span', { class: 'ticker-text' }, item.text));
 
   // Derecha: contador y controles

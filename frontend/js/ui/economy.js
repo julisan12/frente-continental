@@ -3,6 +3,7 @@ import { h, fmtNum, fmtDec, fmtMoney, fmtSigned, deltaClass, COSTS, PROJECT_KIND
 import { icon } from '../icons.js';
 import * as ST from '../state.js';
 import * as F from '../engine/features.js';
+import * as SUPPLY from '../engine/supply.js';
 import { confirmModal } from './modals.js';
 import { getState, setState, player, sendOrder, saveBudget, detail, loadDetail } from '../state.js';
 
@@ -10,7 +11,7 @@ let tab = 'gestion';
 let budTimer = null;
 let draft = null;
 let draftGame = null; // id de la partida a la que pertenece draft
-const TABS = [['gestion', 'Gestión'], ['industria', 'Industria'], ['infra', 'Infraestructura'], ['presupuesto', 'Presupuesto'], ['estabilidad', 'Estabilidad'], ['politica', 'Política'], ['investigacion', 'Investigación']];
+const TABS = [['gestion', 'Gestión'], ['suministro', 'Suministro'], ['industria', 'Industria'], ['infra', 'Infraestructura'], ['presupuesto', 'Presupuesto'], ['estabilidad', 'Estabilidad'], ['politica', 'Política'], ['investigacion', 'Investigación']];
 const SECTOR = { industry: 'Industria', agriculture: 'Agricultura', services: 'Servicios' };
 const BUD = [['army', 'Ejército'], ['social', 'Social'], ['infrastructure', 'Infraestructura'], ['industry', 'Industria']];
 
@@ -35,7 +36,15 @@ function topCards(c, d) {
 }
 
 function gestion(c, d) {
+  const e = ext();
+  const me = player();
+  const supply = e && e.supply && e.supply[me];
+  const hasShortage = supply && supply.short && Object.values(supply.short).some(v => v > 0.05);
+
   return h('div', { class: 'stack' }, topCards(c, d),
+    hasShortage ? h('div', { class: 'panel warn' },
+      h('div', { class: 'row' }, icon('shortage'), h('b', { class: 'grow' }, 'Escasez de recursos'),
+        h('button', { class: 'btn sm', onclick: () => { tab = 'suministro'; render(document.getElementById('economy')); } }, 'Ver'))) : null,
     h('div', { class: 'panel stack' },
       h('h3', { class: 'tag-uc' }, 'Indicadores'),
       h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Tesoro'), h('b', null, fmtMoney(c.money))),
@@ -271,6 +280,94 @@ function investigacion() {
   return h('div', { class: 'stack' }, head, labp, tree);
 }
 
+function suministro() {
+  const e = ext();
+  if (!e) return noExt();
+  const me = player();
+  const c = getState().game.countries[me];
+  const stock = SUPPLY.stock_of(getState().game, me);
+  const supply = (e.supply && e.supply[me]) || { prod: {}, cons: {}, net: {}, short: {} };
+
+  if (!supply.prod || Object.keys(supply.prod).length === 0) {
+    return h('div', { class: 'panel' }, h('div', { class: 'muted' }, 'Se calculará al finalizar el turno.'));
+  }
+
+  const resCards = Object.entries(SUPPLY.RESOURCES).map(([res, info]) => {
+    const stk = stock[res] || 0;
+    const prod = (supply.prod && supply.prod[res]) || 0;
+    const cons = (supply.cons && supply.cons[res]) || 0;
+    const net = (supply.net && supply.net[res]) || 0;
+    const short = (supply.short && supply.short[res]) || 0;
+    const turns = cons > 0 ? stk / cons : 999;
+
+    return h('div', { class: 'panel stack res-card' },
+      h('div', { class: 'row' }, icon(info.icon), h('b', { class: 'grow' }, info.name)),
+      h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Existencias'), h('b', null, fmtDec(stk, 1))),
+      h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Producción/turno'), h('span', { class: 'up' }, '+' + fmtDec(prod, 1))),
+      h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Consumo/turno'), h('span', { class: 'down' }, '-' + fmtDec(cons, 1))),
+      h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Balance'), h('b', { class: deltaClass(net) }, fmtSigned(net, false))),
+      h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Reservas'), h('span', null, turns < 999 ? fmtDec(turns, 1) + ' turnos' : '∞')),
+      short > 0.01 ? h('div', { class: 'warn' },
+        h('div', { class: 'small' }, icon('alert'), ` Escasez ${Math.round(short * 100)}%`),
+        h('div', { class: 'bar bad' }, h('i', { style: { width: Math.min(100, short * 100) + '%' } }))) : null,
+      short > 0.01 ? h('div', { class: 'muted small' }, _shortageDesc(res)) : null);
+  });
+
+  const marketPanel = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Mercado'),
+    h('div', { class: 'muted small' }, 'Compra y venta de recursos. Los precios varían según la oferta y demanda regional.'),
+    Object.entries(SUPPLY.RESOURCES).map(([res, info]) => {
+      const price5 = _marketPrice(res, 5);
+      const price20 = _marketPrice(res, 20);
+      const limit = _marketLimit();
+      return h('div', { class: 'stack', style: { gap: '6px' } },
+        h('div', { class: 'row' }, icon(info.icon), h('b', { class: 'grow' }, info.name),
+          h('span', { class: 'muted small' }, `Límite: ${limit}`)),
+        h('div', { class: 'row', style: { gap: '4px' } },
+          h('button', { class: 'btn sm', onclick: () => act({ action: 'buy', res, amount: 5 }) },
+            `Comprar 5 ($${fmtDec(price5 * 5, 0)}M)`),
+          h('button', { class: 'btn sm', onclick: () => act({ action: 'buy', res, amount: 20 }) },
+            `Comprar 20 ($${fmtDec(price20 * 20, 0)}M)`),
+          h('button', { class: 'btn sm', onclick: () => act({ action: 'sell', res, amount: 10 }) },
+            `Vender 10 ($${fmtDec(_marketPrice(res, 10) * 0.6 * 10, 0)}M)`)));
+    }));
+
+  const tradePanel = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Intercambio'),
+    h('div', { class: 'muted small' }, 'Intercambia recursos 1:1 con países amigos (pacto comercial o relación ≥20).'),
+    h('div', { class: 'small' }, 'Función disponible próximamente.'));
+
+  return h('div', { class: 'stack supply-view' }, h('div', { class: 'res-grid' }, ...resCards), marketPanel, tradePanel);
+}
+
+function _shortageDesc(res) {
+  if (res === 'food') return 'Hambruna: pierde estabilidad y población.';
+  if (res === 'fuel') return 'Tus divisiones pierden organización.';
+  if (res === 'goods') return 'Descontento: pierde estabilidad.';
+  if (res === 'metal') return 'La industria se deteriora.';
+  return '';
+}
+
+const r2 = (x) => Math.round(x * 100) / 100;
+
+function _marketPrice(res, amount) {
+  const g = getState().game;
+  const base = { food: 4, fuel: 7, goods: 6, metal: 6 }[res] || 5;
+  const alive = Object.keys(g.countries).filter(c => g.countries[c].owner === c);
+  let shortCount = 0;
+  for (const cid of alive) {
+    const sup = g.ext && g.ext.supply && g.ext.supply[cid];
+    if (sup && sup.short && sup.short[res] > 0) shortCount++;
+  }
+  const regShort = alive.length > 0 ? shortCount / alive.length : 0;
+  return r2(base * (1 + 0.5 * regShort) * (1 + amount / 40));
+}
+
+function _marketLimit() {
+  const g = getState().game;
+  const me = player();
+  const c = g.countries[me];
+  return 20 + Math.floor((c.infrastructure || 0) / 10) * 2;
+}
+
 function estabilidad(c, d) {
   const f = (d && d.stability_factors) || [];
   return h('div', { class: 'stack' },
@@ -297,7 +394,7 @@ export function render(el) {
   draftGame = S.game.id;
   const tabs = h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([id, l]) =>
     h('button', { class: 'tab', role: 'tab', 'aria-selected': String(tab === id), onclick: () => { tab = id; render(el); } }, l)));
-  const body = { gestion, industria, infra, presupuesto, estabilidad, politica, investigacion }[tab];
+  const body = { gestion, suministro, industria, infra, presupuesto, estabilidad, politica, investigacion }[tab];
   el.append(h('h2', null, 'Economía'), tabs, h('div', { class: 'stack' }, body(c, d)));
 }
 void setState; void toast;

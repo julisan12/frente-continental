@@ -17,11 +17,11 @@ import { ensure, ok, err, news, r1, r2 } from './extutil.js';
 import { sync_armies, at_war, is_sea_route, next_id, allies_of, raw_power, is_adjacent } from './state.js';
 import { queue_order, OrderError } from './orders.js';
 import { stock_of } from './supply.js';
-import { prov_geo, prov_yield, prov_targets, prov_labc_level, BUILD } from './provinces.js';
+import { prov_geo, prov_yield, prov_targets, prov_labc_level, BUILD, build_check, build_cost, prov_build } from './provinces.js';
 import * as AERO from './aero.js';
 import * as F from './features.js';
 import { army_check } from './dipext.js';
-import { ROSTER, MIGRATE_KIND, soil_mods, lookup, TERRAIN_GROUP } from './roster.js';
+import { ROSTER, MIGRATE_KIND, soil_mods, lookup, TERRAIN_GROUP, ordinal } from './roster.js';
 
 // Tanda 3: el catálogo vive en roster.js (ROSTER). UNIT_TYPES se mantiene como alias por compatibilidad.
 export { ROSTER, KINDS, CLASS_NAME, MIGRATE_KIND, soil_mods, lookup, TERRAIN_GROUP, SOIL_NAME, SOIL_MODS } from './roster.js';
@@ -276,9 +276,6 @@ export function enqueue_unit(game, ent, kind, pid) {
   return ok(`${ut.name} en producción en ${loc}: ${total} turno${total === 1 ? '' : 's'}.`);
 }
 
-function _ordinal(n) {
-  return ['', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª', '7ª', '8ª', '9ª', '10ª', '11ª', '12ª', '13ª', '14ª', '15ª'][n] || n + 'ª';
-}
 
 /** Crea la división de una producción terminada; null si ya no hay donde situarla. */
 function _spawn(game, cid, q) {
@@ -291,7 +288,7 @@ function _spawn(game, cid, q) {
   else if (pr) return null;
   const count = (game.divisions || []).filter((d) => d.owner === cid && d.kind === q.kind).length + 1;
   const div = {
-    id: next_id(game, 'd'), name: `${_ordinal(count)} ${ut.name}`, owner: cid, location, kind: q.kind,
+    id: next_id(game, 'd'), name: `${ordinal(count, q.kind)} ${ut.name}`, owner: cid, location, kind: q.kind,
     troops: ut.troops, tanks: ut.tanks, planes: ut.planes, stance: 'idle', org: 80,
     full: { troops: ut.troops, tanks: ut.tanks, planes: ut.planes },
   };
@@ -477,9 +474,13 @@ export function turn(game, rng, lines) {
   const alive = Object.keys(game.countries).filter(cid => game.countries[cid].owner === cid);
   for (const cid of alive) {
     if (cid === me) continue;
+    if (game.ext.prov && game.turn % 2 === 0) { try { _ai_infra(game, cid, rng); } catch (e) { /* IA opcional */ } }
     if (game.countries[cid].money <= 250) continue;
-    if (rng.random() > 0.25) continue;
+    const warring = (game.wars || []).some((w) => w.a === cid || w.b === cid);
+    if (rng.random() > (warring ? 0.45 : 0.3)) continue;
     _ai_recruit(game, cid, rng);
+    // con caja de sobra, hasta dos ordenes mas (el tope de ejercito y los recursos siguen limitando)
+    for (let extra = 0; extra < 3 && game.countries[cid].money > (500 + 5 * game.turn) * (extra + 1) && rng.random() < 0.6; extra++) _ai_recruit(game, cid, rng);
   }
 
   // Limpiar formaciones: divisiones desaparecidas o separadas
@@ -666,40 +667,94 @@ export function div_defense_mult(game, d, target) {
   return m;
 }
 
-/** IA: recluta un tipo variado en una provincia con base/capital/taller/aeropuerto. */
+// Composicion objetivo de la IA (fraccion aproximada del ejercito por tipo). Lo desbloqueado se prefiere hasta llegar a su cuota.
+const AI_SHARE = {
+  explo: 0.03, inf: 0.15, mec: 0.07, elite: 0.03,
+  apc: 0.05, at: 0.04, tl: 0.07, tm: 0.07, tp: 0.04,
+  art: 0.06, cfort: 0.02, cnav: 0.01, misil: 0.03,
+  caza: 0.05, bestr: 0.015, bomb: 0.04, bpes: 0.015, heli: 0.03,
+  dkam: 0.02, barco: 0.04, sub: 0.025, porta: 0.01,
+};
+
+/** Provincias propias de la IA ordenadas por capacidad productiva (taller, aeropuerto, puerto). */
+function _ai_prod_provs(game, cid) {
+  const pr = game.ext.prov;
+  const score = (p) => (p.b.taller || 0) * 3 + (p.b.aeropuerto || 0) * 2 + (p.b.puerto || 0) * 2 + (p.cap ? 1 : 0);
+  return Object.keys(pr).filter((pid) => pr[pid].o === cid).sort((a, b) => score(pr[b]) - score(pr[a]));
+}
+
+/** IA: infraestructura militar que desbloquea el ejercito avanzado (laboratorio central, taller, aeropuerto, puerto). */
+function _ai_infra(game, cid, rng) {
+  const pr = game.ext.prov; const c = game.countries[cid];
+  const mine = _ai_prod_provs(game, cid);
+  if (!mine.length || game.turn < 8) return;
+  const has = (id) => F.has_tech(game, cid, id);
+  const maxLv = (k) => mine.reduce((m, pid) => Math.max(m, pr[pid].b[k] || 0), 0);
+  const tryBuild = (pid, k) => {
+    if (build_check(game, cid, pid, k)) return false;
+    const cost = build_cost(pr[pid], k);
+    if (c.money < cost * 1.3 + 40) return false;
+    return prov_build(game, cid, pid, k, false).ok;
+  };
+  const want = [];
+  if (maxLv('labc') < 1) want.push(['labc', mine[0]]);
+  else if (maxLv('labc') < 2 && game.turn >= 24 && (has('arm3') || has('mis1') || has('air_bestr'))) want.push(['labc', mine[0]]);
+  const best = mine[0];
+  const tl = pr[best].b.taller || 0;
+  if (tl < 2) want.push(['taller', best]);
+  if (has('bld_aero') && !(pr[best].b.aeropuerto > 0)) want.push(['aeropuerto', best]);
+  if (has('bld_puerto') && has('nav1') && maxLv('puerto') < 1) want.push(['puerto', best]);
+  if (tl < 3 && game.turn >= 14) want.push(['taller', best]);
+  if (has('air_bestr') && (pr[best].b.aeropuerto || 0) < 2) want.push(['aeropuerto', best]);
+  if (game.turn >= 26 && (has('arm_tp') || has('nav_porta')) && tl < 4 && has('bld_fab')) want.push(['taller', best]);
+  if (has('nav_porta') && (pr[best].b.puerto || 0) < 2) want.push(['puerto', best]);
+  if (game.turn >= 30 && mine.length > 3 && has('bld_aero') && (pr[best].b.aeropuerto || 0) >= 1) {
+    const second = mine.find((pid) => pid !== best && (pr[pid].b.taller || 0) >= 2 && !(pr[pid].b.aeropuerto > 0));
+    if (second) want.push(['aeropuerto', second]);
+  }
+  for (const [k, pid] of want) if (tryBuild(pid, k)) return;
+}
+
+/** IA: recluta una mezcla de tipos (cuotas por tipo), eligiendo la provincia donde cada tipo es posible. */
 function _ai_recruit(game, cid, rng) {
   const pr = game.ext && game.ext.prov;
   const c = game.countries[cid];
   let cands = [];
   if (pr) {
-    cands = Object.keys(pr).filter((pid) => { const p = pr[pid]; return p.o === cid && (p.cap || (p.b.base || 0) > 0); });
+    cands = _ai_prod_provs(game, cid).slice(0, 5);
     if (!cands.length) { const d = default_pid(game, cid); if (d) cands = [d]; }
     if (!cands.length) return;
   } else cands = [null];
-  const pid = cands[Math.floor(rng.random() * cands.length)];
-  const p = pid && pr[pid];
   const early = game.turn < 15;
-  const owned = {};
-  for (const d of game.divisions || []) if (d.owner === cid) owned[d.kind] = (owned[d.kind] || 0) + 1;
-  for (const q of prod_queue(game, cid)) owned[q.kind] = (owned[q.kind] || 0) + 1;
+  const atWar = (game.wars || []).some((w) => w.a === cid || w.b === cid);
+  const owned = {}; let total = 0;
+  for (const d of game.divisions || []) if (d.owner === cid) { owned[d.kind] = (owned[d.kind] || 0) + 1; total++; }
+  for (const q of prod_queue(game, cid)) { owned[q.kind] = (owned[q.kind] || 0) + 1; total++; }
   const opts = [];
   for (const k of Object.keys(ROSTER)) {
     const ut = ROSTER[k];
-    if (ut.cls === 'drone' || (c.money - ut.cost) < 120) continue;
-    if (recruit_check(game, cid, k, pid)) continue;
-    let w = 1 / (1 + (owned[k] || 0));
-    if (ut.cls === 'inf') w *= early ? 3 : 1.2;
-    if (p && ((p.b.taller || 0) >= 1) && ut.cls === 'arm') w *= 2.5;
-    if (p && ((p.b.aeropuerto || 0) >= 1) && (ut.cls === 'air' || ut.cls === 'heli')) w *= 2.5;
-    if (ut.cls === 'nav') w *= 1.5;
-    if (ut.static) w *= 0.5;
-    opts.push([k, w]);
+    if (ut.cls === 'drone') {   // en guerra: kamikazes y, de vez en cuando, exploradores y señuelos (max. 2 de cada)
+      if (!atWar) continue;
+      if (k !== 'dkam') {
+        if (k !== 'dexp' && k !== 'dsen') continue;
+        if ((owned[k] || 0) >= 2 || rng.random() > 0.4) continue;
+      }
+    }
+    if ((c.money - ut.cost) < (ut.cost > 250 ? 160 : 100)) continue;
+    const pid = cands.find((x) => !recruit_check(game, cid, k, x));
+    if (pid === undefined) continue;
+    const share = AI_SHARE[k] || 0.02;
+    let w = share / ((owned[k] || 0) / (total + 4) + 0.03);
+    if (ut.cls === 'inf' && early) w *= 2;
+    if (ut.cls !== 'inf' && !early) w *= 2;
+    if (ut.static) w *= 0.6;
+    opts.push([k, w, pid]);
   }
   if (!opts.length) return;
   let r = rng.random() * opts.reduce((a, x) => a + x[1], 0);
-  let pick = opts[0][0];
-  for (const [k, w] of opts) { r -= w; if (r <= 0) { pick = k; break; } }
-  enqueue_unit(game, cid, pick, pid);
+  let pick = opts[0];
+  for (const o of opts) { r -= o[1]; if (r <= 0) { pick = o; break; } }
+  enqueue_unit(game, cid, pick[0], pick[2]);
 }
 
 /** Conquista de un pais entero (military.capture): botin y descontento. */
@@ -712,7 +767,7 @@ export function on_capture(game, attacker, target, old_owner) {
     const oldStock = game.ext.stock[old_owner];
     const newStock = game.ext.stock[attacker];
     for (const res of ['food', 'fuel', 'goods', 'metal']) {
-      const amt = Math.floor((oldStock[res] || 0) * 0.3);
+      const amt = Math.min(Math.floor((oldStock[res] || 0) * 0.3), 300);
       if (amt > 0) {
         oldStock[res] = Math.max(0, (oldStock[res] || 0) - amt);
         newStock[res] = (newStock[res] || 0) + amt;
@@ -740,6 +795,9 @@ const BUILD_TO_STOCK = [['refineria', 'fuel'], ['mina', 'metal'], ['granja', 'fo
 export const RES_LABEL = { food: 'alimentos', fuel: 'combustible', goods: 'bienes', metal: 'metal' };
 const P_RES = { petroleo: 'petróleo', gas: 'gas', minerales: 'minerales', cobre: 'cobre', agro: 'cultivos', madera: 'madera' };
 const _m10 = (m) => Math.round(m * 10);
+const LOOT_MONEY_MAX = 60;   // techo de la parte del botin que sale del tesoro del perdedor (x10 = M mostrados)
+const LOOT_RES_MAX = 80;     // techo de la requisa de recursos del stock del perdedor
+
 
 /** Calculo comun (sin efectos) del botin de la provincia `pid` cuyo dueno actual/anterior es `owner`. */
 function _loot_calc(game, pid, owner) {
@@ -749,12 +807,12 @@ function _loot_calc(game, pid, owner) {
   const econ = (b.taller || 0) + (b.refineria || 0) + (b.mina || 0) + (b.granja || 0);
   const fixed = 15 + 8 * econ + 4 * ((b.avenida || 0) + (b.ferrocarril || 0)) + (p.cap ? 20 : 0);
   const ownerMoney = Math.max(0, (game.countries[owner] && game.countries[owner].money) || 0);
-  const fromOwner = ownerMoney * 0.06;
+  const fromOwner = Math.min(ownerMoney * 0.03, LOOT_MONEY_MAX);   // 3 % del tesoro del perdedor, con techo
   const yld = prov_yield(game, pid);
   const ostock = (game.ext.stock && game.ext.stock[owner]) || {};
   let res = RES_TO_STOCK[p.r] || null, amt = 0;
   if (res) {
-    amt = Math.max(6, 0.25 * (ostock[res] || 0)) + 3 * (yld[res] || 0);
+    amt = Math.max(6, Math.min(0.12 * (ostock[res] || 0), LOOT_RES_MAX)) + 3 * (yld[res] || 0);
   } else {
     let best = 0;
     for (const [bk, rs] of BUILD_TO_STOCK) if ((b[bk] || 0) > best) { best = b[bk]; res = rs; }
@@ -790,7 +848,7 @@ export function on_prov_capture(game, attacker, pid, old_owner) {
   const c = _loot_calc(game, pid, old_owner);
   if (!c) return;
 
-  // Dinero: la parte fija la genera la provincia; el 6 % sale del tesoro del dueno (nunca negativo)
+  // Dinero: la parte fija la genera la provincia; el 3 % (con techo) sale del tesoro del dueno (nunca negativo)
   const taken = Math.min(Math.max(0, old.money || 0), c.fromOwner);
   old.money = r2(Math.max(0, (old.money || 0) - taken));
   const money = r1(c.fixed + taken);

@@ -151,7 +151,8 @@ export function recruit_check(game, ent, kind, pid) {
   const used = occupants(game, ent, pid, bk).length;
   // las unidades ya en cola de producción hacia pid también ocupan plaza
   const q = (game.ext && game.ext.prodq && game.ext.prodq[ent]) || [];
-  const queued = q.filter((x) => x.pid === pid && ROSTER[x.kind] && (bk === 'aeropuerto' ? ['air', 'drone', 'heli'].includes(ROSTER[x.kind].cls) : ROSTER[x.kind].cls === 'nav')).length;
+  // al terminar una producción, units.turn ya descontó `left`: los ya terminados (left <= 0, incluida la propia) no cuentan
+  const queued = q.filter((x) => (x.left == null || x.left > 0) && x.pid === pid && ROSTER[x.kind] && (bk === 'aeropuerto' ? ['air', 'drone', 'heli'].includes(ROSTER[x.kind].cls) : ROSTER[x.kind].cls === 'nav')).length;
   if (used + queued + 1 > cap) return `${bk === 'aeropuerto' ? 'Aeropuerto' : 'Puerto'} lleno (${used + queued}/${cap} plazas). Amplíalo o usa otra provincia.`;
   return null;
 }
@@ -474,6 +475,28 @@ export function turn(game, rng, lines) {
   for (const ent of entities(game)) {
     if (ent === me || !is_alive(game, ent)) continue;
     if (!game.wars.some((w) => w.a === ent || w.b === ent)) continue;
+    // drones de un solo uso: exploradores sobre un enemigo y señuelos sobre una provincia propia (se consumen)
+    for (const d of [...game.divisions]) {
+      if (d.owner !== ent || !['dexp', 'dsen'].includes(kind_of(d)) || !can_act(game, d) || (is_flyer(d) && !base_valid(game, d))) continue;
+      if (rng.random() > 0.5) continue;
+      if (kind_of(d) === 'dexp') {
+        const foes = [...new Set(Object.values(P(game)).filter((p) => p.o !== ent && at_war(game, ent, p.o)).map((p) => p.o))].filter((c) => range_ok(game, d, c));
+        if (!foes.length) continue;
+        const cid = foes[Math.floor(rng.random() * foes.length)];
+        (A(game).intel[cid] = A(game).intel[cid] || {})[ent] = game.turn + 6;
+        game.divisions = game.divisions.filter((x) => x !== d);
+        A(game).drone_uses = (A(game).drone_uses || 0) + 1;
+        if (cid === me) lines.push(`${cname(game, ent)} sobrevuela tu territorio con un dron explorador.`);
+      } else {
+        const own = Object.entries(P(game)).filter(([, p]) => p.o === ent && range_ok(game, d, p.c));
+        if (!own.length) continue;
+        own.sort((x, y) => (y[1].cap ? 1 : 0) - (x[1].cap ? 1 : 0) || rng.random() - 0.5);
+        A(game).decoys[own[0][0]] = game.turn;
+        game.divisions = game.divisions.filter((x) => x !== d);
+        A(game).drone_uses = (A(game).drone_uses || 0) + 1;
+      }
+    }
+    sync_armies(game);
     if (rng.random() > AI_STRIKE_PROB) continue;
     const mine = game.divisions.filter((d) => d.owner === ent && can_act(game, d) && !ROSTER[kind_of(d)].static && ROSTER[kind_of(d)].range && !['dexp', 'dsen'].includes(kind_of(d)) && (!is_flyer(d) || base_valid(game, d)));
     let shots = 0;

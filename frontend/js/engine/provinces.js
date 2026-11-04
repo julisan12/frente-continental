@@ -469,8 +469,10 @@ function hospital_turn(game, lines) {
 
 /** IA: 1 obra cada 3 turnos. Primero economia (granja/mina/refineria/taller 1-3), luego militar e infraestructura. */
 const AI_ECO = ['granja', 'mina', 'refineria', 'taller'];
-const AI_MIL = [['fuerte', 2], ['aeropuerto', 1], ['hospital', 1], ['base', 2], ['puerto', 1], ['labc', 1], ['avenida', 2], ['ferrocarril', 1], ['lab', 1], ['taller', 9]];
-function ai_build(game, o, rng) {
+const AI_MIL = [['fuerte', 2], ['aeropuerto', 1], ['hospital', 1], ['base', 2], ['puerto', 1], ['labc', 1], ['avenida', 2], ['ferrocarril', 1], ['lab', 1], ['aeropuerto', 2], ['puerto', 2], ['labc', 2], ['taller', 9]];
+// Edificios que sostienen unidades avanzadas: se prefieren provincias con taller (aire/marina exigen taller 2-4 en la misma provincia)
+const AI_NEEDS_TALLER = ['aeropuerto', 'puerto'];
+function ai_build(game, o, rng, rich) {
   const pr = game.ext.prov; const money = game.countries[o].money || 0;
   const mine = Object.keys(pr).filter((pid) => pr[pid].o === o);
   if (!mine.length) return;
@@ -480,14 +482,19 @@ function ai_build(game, o, rng) {
     const order = shuffle ? kinds.slice().sort(() => rng.random() - 0.5) : kinds;
     for (const k of order) {
       const opts = mine.filter((pid) => !build_check(game, o, pid, k) && !(k === 'taller' && kinds === AI_ECO && (pr[pid].b.taller || 0) >= 3) && build_cost(pr[pid], k) * 1.2 <= money);
-      if (opts.length) { const pid = opts[Math.floor(rng.random() * opts.length)]; return prov_build(game, o, pid, k, false).ok; }
+      if (opts.length) {
+        let pool = opts;
+        if (AI_NEEDS_TALLER.includes(k)) { const w = opts.filter((q) => (pr[q].b.taller || 0) >= 2); if (w.length) pool = w; }
+        else if (k === 'taller' && kinds !== AI_ECO) { const w = opts.filter((q) => (pr[q].b.aeropuerto || 0) + (pr[q].b.puerto || 0) > 0); if (w.length) pool = w; }
+        const pid = pool[Math.floor(rng.random() * pool.length)]; return prov_build(game, o, pid, k, false).ok;
+      }
     }
     return false;
   };
   const ecoGoal = 2 + Math.floor(mine.length / 8) + Math.floor(game.turn / 10);
-  if (ecoLv < ecoGoal && tryKinds(AI_ECO, true)) return;
+  if (ecoLv < ecoGoal + (rich ? 2 + Math.floor(mine.length / 4) : 0) && tryKinds(AI_ECO, true)) return;
   for (const [k, goal] of AI_MIL) {
-    if (total(k) >= goal + (k === 'fuerte' ? Math.floor(mine.length / 8) : 0)) continue;
+    if (total(k) >= goal + (k === 'fuerte' ? Math.floor(mine.length / 8) : 0) + (rich ? 1 + Math.floor(mine.length / 6) : 0)) continue;
     if (tryKinds([k])) return;
   }
   tryKinds(AI_ECO, true);
@@ -566,6 +573,9 @@ export function prov_turn(game, rng, lines) {
   for (const o of owners) {
     if (o === me || !game.countries[o]) continue;
     if ((game.turn + hash(o)) % 3 === 0) ai_build(game, o, rng);
+    // sumidero de caja: con el tesoro por encima de la reserva, obras extra cada turno (hasta 3)
+    const surplus = (game.countries[o].money || 0) - (350 + 6 * game.turn);
+    if (surplus > 0) for (let n = 0, m = Math.min(3, 1 + Math.floor(surplus / 500)); n < m && (game.countries[o].money || 0) > 350 + 6 * game.turn; n++) ai_build(game, o, rng, true);
     const tg = prov_targets(game, o);
     if (tg.length && rng.random() < 0.35) {
       const pid = tg.reduce((b, q) => (prov_defense(game, q) < prov_defense(game, b) ? q : b));

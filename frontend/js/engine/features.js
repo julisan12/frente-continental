@@ -420,7 +420,7 @@ export function research_rate(game, cid) {
   const lab = game.ext && game.ext.labs[cid] ? game.ext.labs[cid] : 0;
   let plab = 0;
   try { plab = prov_lab_levels(game, cid) || 0; } catch (e) { plab = 0; }
-  const rate = 0.15 + c.development * 0.06 + c.industry / 600 + lab * 0.25 + plab * 0.12;
+  const rate = 0.24 + c.development * 0.06 + c.industry / 600 + lab * 0.25 + plab * 0.12;
   return r2(rate);
 }
 
@@ -663,13 +663,37 @@ function _tech_effects_tick(game, cid) {
   if (rel && game.turn % 6 === 0) for (const o of _aliveIds(game)) if (o !== cid) add_rel(game, cid, o, Math.round(rel * 6) || (rel > 0 ? 1 : -1));
 }
 
+// Objetivos de investigacion de la IA, por orden de prioridad (se llega a ellos pasando por sus requisitos).
+const AI_TECH_GOALS = ['arm_apc', 'art1', 'air1', 'bld_aero', 'arm_tl', 'eco1', 'arm_at', 'air_bomb', 'arm2', 'arm_tm', 'air2', 'bld_puerto', 'nav1',
+  'drone1', 'eco2', 'bld_fab', 'air_heli', 'nav_sub', 'art3', 'arm3', 'mis1', 'air3', 'air_bestr', 'arm_tp', 'nav_porta', 'mec1', 'air_bpes', 'elite', 'art_cfort', 'silo'];
+const AI_RESEARCH_MULT = 1.4;   // la IA investiga algo mas rapido (llega a las unidades avanzadas a tiempo)
+let _goalCache = null;
+function _goal_rank() {
+  // id de tecnica -> posicion del objetivo mas prioritario del que es requisito (o el propio objetivo)
+  if (_goalCache) return _goalCache;
+  const rank = {};
+  const visit = (id, i) => {
+    if (rank[id] !== undefined && rank[id] <= i) return;
+    rank[id] = i;
+    const t = TECHS.find((x) => x.id === id);
+    if (t) for (const r of t.req) visit(r, i);
+  };
+  AI_TECH_GOALS.forEach((g, i) => visit(g, i));
+  return (_goalCache = rank);
+}
+
 function _ai_pick_tech(game, cid, rng) {
   const st = game.ext.techs[cid];
   const lab = game.ext.labs[cid] || 0;
   let lc = 0; try { lc = prov_labc_level(game, cid); } catch (er) { lc = 0; }
   const opts = TECHS.filter((t) => !st.done.includes(t.id) && t.lab <= lab && (t.labc || 0) <= lc && t.req.every((r) => st.done.includes(r)));
   if (!opts.length) return null;
-  return opts[Math.floor(rng.random() * opts.length)].id;
+  // prioridad guiada hacia el ejercito avanzado, con algo de variedad (peso base para todas)
+  const rank = _goal_rank();
+  const ws = opts.map((t) => 0.4 + (rank[t.id] !== undefined ? 6 / (1 + rank[t.id] * 0.35) : 0));
+  let r = rng.random() * ws.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < opts.length; i++) { r -= ws[i]; if (r <= 0) return opts[i].id; }
+  return opts[opts.length - 1].id;
 }
 
 export function ext_turn(game) {
@@ -691,7 +715,7 @@ export function ext_turn(game) {
     const c = game.countries[cid];
     // IA: laboratorio y enfoques ocasionales
     if (cid !== me) {
-      if (turn % 10 === 0 && (e.labs[cid] || 0) < 2 && c.money > 260) {
+      if (turn % 6 === 0 && (e.labs[cid] || 0) < 2 && c.money > 200) {
         c.money = r2(c.money - 70 * ((e.labs[cid] || 0) + 1)); e.labs[cid] = (e.labs[cid] || 0) + 1;
       }
       const pol = e.policy[cid];
@@ -705,7 +729,7 @@ export function ext_turn(game) {
       }
     }
     if (st.cur) {
-      st.prog = r2(st.prog + research_rate(game, cid));
+      st.prog = r2(st.prog + research_rate(game, cid) * (cid === me ? 1 : AI_RESEARCH_MULT));
       const t = _tech(st.cur);
       if (t && st.prog >= t.cost) {
         st.done.push(t.id);

@@ -36,6 +36,8 @@ export function kind_of(d) {
   return 'inf';
 }
 const spec = (d) => ROSTER[kind_of(d)];
+/** Composición al 100 % de la división (d.full si A la fijó; si no, la del roster). */
+const full_of = (d) => { const sp = spec(d); const f = d.full || {}; return { troops: f.troops != null ? f.troops : sp.troops, tanks: f.tanks != null ? f.tanks : sp.tanks, planes: f.planes != null ? f.planes : sp.planes }; };
 export const is_flyer = (d) => ['air', 'drone', 'heli'].includes(spec(d).cls);
 export const is_naval = (d) => spec(d).cls === 'nav';
 export const has_base = (d) => is_flyer(d) || is_naval(d);
@@ -239,8 +241,8 @@ function upgrades(game, d) {
   return 1 + 0.1 * n;
 }
 function health(d) {
-  const sp = spec(d);
-  const full = raw_power(sp.troops, sp.tanks, sp.planes) || 1;
+  const f = full_of(d);
+  const full = raw_power(f.troops, f.tanks, f.planes) || 1;
   return Math.max(0.25, Math.min(1, raw_power(d.troops, d.tanks, d.planes) / full));
 }
 export function warhead_of(game, d, want) {
@@ -417,7 +419,7 @@ export function action(game, body) {
 
 // ------------------------------------------------------------------ turno
 function heal(game, d) {
-  const sp = spec(d);
+  const sp = full_of(d);
   let any = false;
   for (const [k, full] of [['troops', sp.troops], ['tanks', sp.tanks], ['planes', sp.planes]]) {
     if (full > 0 && d[k] < full) { d[k] = Math.min(full, d[k] + full * HEAL_FRAC); any = true; }
@@ -425,7 +427,7 @@ function heal(game, d) {
   return any;
 }
 function needs_heal(d) {
-  const sp = spec(d);
+  const sp = full_of(d);
   return (sp.troops > 0 && d.troops < sp.troops) || (sp.tanks > 0 && d.tanks < sp.tanks) || (sp.planes > 0 && d.planes < sp.planes);
 }
 

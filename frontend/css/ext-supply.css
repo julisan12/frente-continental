@@ -1,1 +1,50 @@
 /* Tanda 1: estilos de supply (ver el modulo JS correspondiente) */
+
+.supply-view {
+  gap: 16px;
+}
+
+.res-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.res-card {
+  border-left: 3px solid var(--border);
+  gap: 8px !important;
+}
+
+.res-card .kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9em;
+}
+
+.res-card .warn {
+  background: rgba(154, 74, 66, 0.1);
+  padding: 8px;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+.res-card .bar.bad {
+  background: rgba(154, 74, 66, 0.2);
+}
+
+.res-card .bar.bad i {
+  background: #9a4a42;
+}
+
+/* Panel de aviso en gestión */
+.panel.warn {
+  background: rgba(184, 151, 90, 0.08);
+  border-left: 3px solid #b8975a;
+}
+
+@media (max-width: 600px) {
+  .res-grid {
+    grid-template-columns: 1fr;
+  }
+}

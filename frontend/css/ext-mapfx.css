@@ -1,8 +1,10 @@
-/* Mapa pintado: relieve horneado, provincias, insignias y panel */
+/* Mapa limpio: rellenos planos, provincias vectoriales finas, insignias y panel */
 .fx-off .fxl { display: none; }
 .fxl, .fx-root, .fx-canvas { pointer-events: none; }
 .fx-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
-.fx-ocean, .fx-paint { image-rendering: auto; }
+.fx-ocean { pointer-events: none; }
+/* Provincias: sin relleno, borde solido muy fino (alfa .3), sin patrones ni puntos */
+.fx-pb { fill: none; stroke: rgba(14,16,12,.3); stroke-width: .35px; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 
 /* Ocupación y selección */
 .fx-occp { opacity: .75; }
@@ -14,14 +16,14 @@
 .fx-b-bld { display: none; }
 .fx-plbl { display: none; }
 
-/* Insignias: en 'res' el recurso siempre y los edificios desde z1; en otros modos solo el recurso desde z2 */
-.fx-root.m-res .fx-badges, .fx-root.z2 .fx-badges { display: inline; }
+/* Insignias: solo en 'res' (recurso siempre, edificios desde z1); los demas modos quedan limpios */
+.fx-root.m-res .fx-badges { display: inline; }
 .fx-root:not(.m-res) .fx-b-bld { display: none !important; }
 .fx-root.m-res.z1 .fx-b-bld { display: inline; }
 .fx-root:not(.m-res):not(.z2) .fx-b-res { display: none; }
 
-/* Infraestructura: z1 en todos los modos; en 'res' siempre (a zoom 1 solo trazos finos, sin simbolos) */
-.fx-root.z1 .fx-infra, .fx-root.m-res .fx-infra { display: inline; }
+/* Infraestructura: en 'res' solo con zoom alto (z1); en 'war' siempre; en el resto, oculta */
+.fx-root.m-res.z1 .fx-infra, .fx-root.m-war .fx-infra { display: inline; }
 .fx-root:not(.z1) .fx-inf-sym { display: none; }
 .fx-road-c, .fx-road, .fx-rail-c, .fx-rail, .fx-line-c, .fx-line { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .fx-road-c { stroke: rgba(40,26,12,.85); }
@@ -34,11 +36,9 @@
 .fx-root:not(.z1) .fx-road, .fx-root:not(.z1) .fx-rail { stroke-width: 1px; }
 .fx-root:not(.z1) .fx-line-c, .fx-root:not(.z1) .fx-line { display: none; }
 
-/* Modo 'war': ocupación y unidades */
-.fx-root.m-war .fx-occ { display: inline; }
-.fx-root.m-war .fx-units { display: inline; }
-
-/* Modo 'rel', 'pol': nada especial (todo oculto por defecto) */
+/* Ocupación: 'war' y 'pol'. Unidades: 'pol' y 'war' (nunca en 'res' ni 'rel') */
+.fx-root.m-war .fx-occ, .fx-root.m-pol .fx-occ { display: inline; }
+.fx-root.m-war .fx-units, .fx-root.m-pol .fx-units { display: inline; }
 
 /* Etiquetas de provincia según zoom (todos los modos) */
 .fx-root.z2 .fx-plbl { display: inline; }

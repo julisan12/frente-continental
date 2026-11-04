@@ -1,26 +1,20 @@
-// Mapa pintado (relieve horneado en canvas), provincias funcionales y animaciones de combate/obra.
+// Mapa limpio: rellenos planos, provincias vectoriales finas, capas por modo y animaciones de combate/obra.
 import { h, svgEl } from '../util.js';
 import { ICON_PATHS } from '../icons.js';
 import { getState, player, isAtWar, isAllied, ownerOf } from '../state.js';
-import { toXY } from '../data/provinces.js';
 import * as P from '../engine/provinces.js';
 import * as PP from './provpanel.js';
 import { UNIT_TYPES, kind_of } from '../engine/units.js';
+import { ROSTER } from '../engine/roster.js';
 
 const VW = 500, VH = 535;
 const LS = 'fc.mapfx';
-const ELEV = { M: 1, A: 0.8, E: 0.35, B: 0.3, D: 0.25, V: 0.2, T: 0.18, P: 0.12, S: 0.1 };
-const TINT = {
-  S: [30, 96, 36, 0.4], T: [70, 124, 48, 0.26], B: [64, 98, 52, 0.24], D: [222, 186, 120, 0.26],
-  A: [170, 146, 112, 0.18], M: [128, 108, 84, 0.16], E: [178, 160, 108, 0.16], P: [150, 172, 92, 0.1], V: [186, 170, 92, 0.16],
-};
 export const RES_COLOR = { petroleo: '#3a3530', gas: '#2f7fe0', minerales: '#8b5fd0', cobre: '#d0702a', agro: '#6fae2e', madera: '#8a5a2c' };
 export const RES_ICON = { petroleo: 'res_oil', gas: 'res_gas', minerales: 'res_min', cobre: 'res_cu', agro: 'res_agro', madera: 'res_wood' };
 export const SUP_ICON = { food: 'wheat', fuel: 'fire', goods: 'box', metal: 'ingot' };
 export const SUP_NAME = { food: 'Alimentos', fuel: 'Combustible', goods: 'Bienes', metal: 'Metal' };
 export const INFRA_LEGEND = [['#c9a866', 'Carretera'], ['#3a3f46', 'Ferrocarril'], ['#6b5a45', 'Fortaleza'], ['#2b1d10', 'Línea defensiva']];
 export const BUILD_COLOR = { base: '#7a2e2a', taller: '#5a6470', refineria: '#c98a2a', mina: '#6e5a48', granja: '#5b8a32', aeropuerto: '#3f7a80', puerto: '#3f6a9a', hospital: '#9a4a5a', radar: '#5a6a3a', capital: '#b8975a', labc: '#6a4a8a' };
-const TCODES = Object.keys(ELEV);
 const reduced = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
 
 let enabled = true;
@@ -29,7 +23,6 @@ try { enabled = localStorage.getItem(LS) !== '0'; } catch (e) { /* sin storage *
 
 let svgR = null, defsR = null, worldR = null, countriesR = [];
 let ocean = null, paint = null, root = null, gOcc = null, gSel = null, gBadge = null, gLbl = null, gUnits = null, gInfra = null;
-let bakeCache = null; // { land, sea } blob URLs
 let selPid = null, lastSig = '', zoomCls = '', currentMode = 'rel';
 let cellsById = null, geoById = {};
 
@@ -78,149 +71,6 @@ function provCells() {
 const polyD = (poly) => poly.length ? 'M' + poly.map((p) => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('L') + 'Z' : '';
 const pathOf = (cid) => { const c = countriesR.find((x) => x.id === cid); return c ? c.path : ''; };
 
-// ---------- ruido ----------
-function hash(x, y) { let n = x * 374761393 + y * 668265263; n = (n ^ (n >>> 13)) * 1274126177; return ((n ^ (n >>> 16)) >>> 0) / 4294967295; }
-function vnoise(x, y) {
-  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
-  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
-  const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
-  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
-}
-function fbm(x, y, o) { let s = 0, a = 0.5, f = 1; for (let i = 0; i < o; i++) { s += a * vnoise(x * f, y * f); f *= 2.03; a *= 0.5; } return s; }
-
-const canvas = (w, hgt) => { const c = document.createElement('canvas'); c.width = w; c.height = hgt; return c; };
-const idle = () => new Promise((r) => (window.requestIdleCallback ? requestIdleCallback(() => r(), { timeout: 400 }) : setTimeout(r, 30)));
-const toURL = (c) => new Promise((r) => {
-  if (c.toBlob) c.toBlob((b) => r(b ? URL.createObjectURL(b) : c.toDataURL()), 'image/png');
-  else r(c.toDataURL());
-});
-
-// ---------- horneado del relieve ----------
-async function bake() {
-  if (bakeCache) return bakeCache;
-  const LW = 500, LH = 535; // resolucion del calculo
-  const cells = provCells();
-  const geo = geoList();
-  const land = new Path2D();
-  countriesR.forEach((c) => { try { land.addPath(new Path2D(c.path)); } catch (e) { /* */ } });
-
-  // 1) mapas de elevacion, tinte y terreno por celda
-  const elev = canvas(LW, LH), tint = canvas(LW, LH), terr = canvas(LW, LH);
-  const ex = elev.getContext('2d'), tx = tint.getContext('2d'), rx = terr.getContext('2d');
-  ex.fillStyle = '#000'; ex.fillRect(0, 0, LW, LH);
-  for (const c of countriesR) {
-    let cp; try { cp = new Path2D(c.path); } catch (e) { continue; }
-    for (const g of [ex, tx, rx]) { g.save(); g.clip(cp); }
-    geo.filter((p) => p.c === c.id).forEach((p) => {
-      const cell = cells[p.pid]; if (!cell || !cell.length) return;
-      const pp = new Path2D(polyD(cell));
-      const e = ELEV[p.t] ?? 0.2, t = TINT[p.t] || [150, 150, 110, 0.25];
-      ex.fillStyle = `rgb(${Math.round(e * 255)},0,0)`; ex.fill(pp);
-      tx.fillStyle = `rgba(${t[0]},${t[1]},${t[2]},${t[3]})`; tx.fill(pp);
-      rx.fillStyle = `rgb(${TCODES.indexOf(p.t) + 1},0,0)`; rx.fill(pp);
-    });
-    for (const g of [ex, tx, rx]) g.restore();
-  }
-  await idle();
-  // 2) desenfoque (transiciones suaves entre provincias)
-  const blur = (src, px) => {
-    const o = canvas(LW, LH), g = o.getContext('2d');
-    if ('filter' in g) { g.filter = `blur(${px}px)`; g.drawImage(src, 0, 0); }
-    else { g.globalAlpha = 0.25; for (let dx = -2; dx <= 2; dx += 2) for (let dy = -2; dy <= 2; dy += 2) g.drawImage(src, dx * px / 2, dy * px / 2); }
-    return o;
-  };
-  const eB = blur(elev, 7).getContext('2d').getImageData(0, 0, LW, LH).data;
-  const tB = blur(tint, 4).getContext('2d').getImageData(0, 0, LW, LH).data;
-  const rD = rx.getImageData(0, 0, LW, LH).data;
-  await idle();
-  // 3) altura final = base + ruido montañoso, sombreado NO, nieve, motas de selva
-  const H = new Float32Array(LW * LH);
-  for (let y = 0; y < LH; y++) {
-    for (let x = 0; x < LW; x++) {
-      const i = y * LW + x, e = eB[i * 4] / 255;
-      const n = fbm(x / 22, y / 22, 5);
-      const ridge = 1 - Math.abs(fbm(x / 9 + 7, y / 9 + 3, 4) * 2 - 1);
-      H[i] = e * (0.55 + 0.45 * n) + e * e * ridge * 0.55 + n * 0.04;
-    }
-    if (y % 90 === 89) await idle();
-  }
-  const out = new ImageData(LW, LH), od = out.data;
-  const SEL = TCODES.indexOf('S') + 1, TRO = TCODES.indexOf('T') + 1;
-  for (let y = 1; y < LH - 1; y++) {
-    for (let x = 1; x < LW - 1; x++) {
-      const i = y * LW + x, j = i * 4;
-      let r = tB[j], g = tB[j + 1], b = tB[j + 2], a = tB[j + 3] / 255;
-      if (a > 0) { r /= a; g /= a; b /= a; } // des-premultiplicar
-      const over = (cr, cg, cb, ca) => {
-        if (ca <= 0) return;
-        const na = ca + a * (1 - ca);
-        r = (cr * ca + r * a * (1 - ca)) / na; g = (cg * ca + g * a * (1 - ca)) / na; b = (cb * ca + b * a * (1 - ca)) / na; a = na;
-      };
-      // motas de selva / vegetacion tropical
-      const tc = rD[j];
-      if (tc === SEL || tc === TRO) {
-        const s = hash(x, y * 3), m = fbm(x / 3, y / 3, 2);
-        if (m > 0.55) over(18, 62, 24, (m - 0.55) * 1.6 * (tc === SEL ? 1 : 0.6));
-        else if (s > 0.93) over(90, 140, 60, 0.35);
-      }
-      // sombreado de colinas (luz desde el noroeste)
-      const dzx = (H[i + 1] - H[i - 1]) * 9, dzy = (H[i + LW] - H[i - LW]) * 9;
-      const sh = Math.max(-1, Math.min(1, -(dzx + dzy) * 0.9));
-      if (sh > 0) over(255, 246, 222, sh * 0.26); else over(28, 18, 8, -sh * 0.5);
-      // nieve en cumbres andinas
-      const hh = H[i];
-      if (hh > 0.72) over(246, 248, 252, Math.min(0.92, (hh - 0.72) * 3.2) * (0.75 + 0.25 * Math.max(0, sh)));
-      // grano de papel
-      over(40, 30, 15, hash(x * 7, y * 5) * 0.04);
-      od[j] = r; od[j + 1] = g; od[j + 2] = b; od[j + 3] = Math.round(a * 255);
-    }
-    if (y % 90 === 89) await idle();
-  }
-  const lo = canvas(LW, LH); lo.getContext('2d').putImageData(out, 0, 0);
-  // 4) composicion a 2x, recortado a tierra, fronteras provinciales
-  const S2 = 2, hi = canvas(VW * S2, VH * S2), hx = hi.getContext('2d');
-  hx.setTransform(S2, 0, 0, S2, 0, 0);
-  hx.save(); hx.clip(land); hx.imageSmoothingQuality = 'high'; hx.drawImage(lo, 0, 0, VW, VH); hx.restore();
-  hx.lineWidth = 0.35; hx.strokeStyle = 'rgba(30,20,10,.45)'; hx.setLineDash([1.2, 0.8]);
-  for (const c of countriesR) {
-    let cp; try { cp = new Path2D(c.path); } catch (e) { continue; }
-    hx.save(); hx.clip(cp);
-    geo.filter((p) => p.c === c.id).forEach((p) => { const cell = cells[p.pid]; if (cell && cell.length) hx.stroke(new Path2D(polyD(cell))); });
-    hx.restore();
-  }
-  hx.setLineDash([]);
-  // sombra interna de costa
-  hx.save(); hx.clip(land); hx.lineWidth = 2.4; hx.strokeStyle = 'rgba(20,12,4,.22)'; hx.stroke(land); hx.restore();
-  await idle();
-  // 5) oceano: azul marino con brillo costero y reticula
-  const sea = canvas(LW, LH), sx = sea.getContext('2d');
-  const grd = sx.createLinearGradient(0, 0, LW * 0.4, LH);
-  grd.addColorStop(0, '#0d2340'); grd.addColorStop(1, '#081830');
-  sx.fillStyle = grd; sx.fillRect(0, 0, LW, LH);
-  const sd = sx.getImageData(0, 0, LW, LH), sdd = sd.data;
-  for (let i = 0; i < LW * LH; i++) {
-    const x = i % LW, y = (i / LW) | 0, n = fbm(x / 40, y / 40, 4) - 0.5;
-    sdd[i * 4] += n * 14; sdd[i * 4 + 1] += n * 20; sdd[i * 4 + 2] += n * 30;
-  }
-  sx.putImageData(sd, 0, 0);
-  const glow = canvas(LW, LH), gx = glow.getContext('2d');
-  gx.lineWidth = 7; gx.strokeStyle = 'rgba(60,150,170,.9)'; gx.stroke(land);
-  gx.lineWidth = 2; gx.strokeStyle = 'rgba(150,215,220,.9)'; gx.stroke(land);
-  sx.globalAlpha = 0.45; sx.drawImage(blur(glow, 6), 0, 0); sx.globalAlpha = 1;
-  sx.strokeStyle = 'rgba(170,200,225,.13)'; sx.lineWidth = 0.6;
-  for (let lat = -60; lat <= 20; lat += 10) { const a = toXY(lat, -100), b = toXY(lat, -20); sx.beginPath(); sx.moveTo(a[0], a[1]); sx.lineTo(b[0], b[1]); sx.stroke(); }
-  for (let lon = -100; lon <= -20; lon += 10) { const a = toXY(25, lon), b = toXY(-65, lon); sx.beginPath(); sx.moveTo(a[0], a[1]); sx.lineTo(b[0], b[1]); sx.stroke(); }
-  // desvanecer bordes al color del fondo para evitar costuras
-  const EDGE = 'rgba(10,26,44,', fw = Math.round(LW * 0.12);
-  for (const [x0, y0, x1, y1, rx0, ry0, rw, rh] of [[0,0,fw,0,0,0,fw,LH],[LW,0,LW-fw,0,LW-fw,0,fw,LH],[0,0,0,fw,0,0,LW,fw],[0,LH,0,LH-fw,0,LH-fw,LW,fw]]) {
-    const g = sx.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, EDGE + '1)'); g.addColorStop(1, EDGE + '0)');
-    sx.fillStyle = g; sx.fillRect(rx0, ry0, rw, rh);
-  }
-  const [landURL, seaURL] = await Promise.all([toURL(hi), toURL(sea)]);
-  bakeCache = { land: landURL, sea: seaURL };
-  return bakeCache;
-}
-
 // ---------- capas vectoriales ----------
 const STROKE = { fill: 'none', stroke: '#fff', 'stroke-width': 2.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
 const hexPts = (r) => Array.from({ length: 6 }, (_, k) => { const a = Math.PI / 6 + k * Math.PI / 3; return (Math.cos(a) * r).toFixed(2) + ',' + (Math.sin(a) * r).toFixed(2); }).join(' ');
@@ -253,8 +103,14 @@ export function iconHTML(name, color, size = 22) {
 export function init(svg, defs, world, geo, countries) {
   svgR = svg; defsR = defs; worldR = world; countriesR = countries || [];
   svg.classList.toggle('fx-off', !enabled);
-  ocean = svgEl('image', { class: 'fxl fx-ocean', x: -VW, y: -VH, width: VW * 3, height: VH * 3, preserveAspectRatio: 'none' });
-  paint = svgEl('image', { class: 'fxl fx-paint', x: 0, y: 0, width: VW, height: VH, preserveAspectRatio: 'none' });
+  // oceano: degradado azul noche plano (sin ruido ni cuadricula)
+  const gid = 'fx-sea-grad';
+  if (!defs.querySelector('#' + gid)) {
+    defs.append(svgEl('linearGradient', { id: gid, x1: 0, y1: 0, x2: 0.35, y2: 1 },
+      svgEl('stop', { offset: '0%', 'stop-color': '#0f2745' }), svgEl('stop', { offset: '100%', 'stop-color': '#081830' })));
+  }
+  ocean = svgEl('rect', { class: 'fxl fx-ocean', x: -VW * 2, y: -VH * 2, width: VW * 5, height: VH * 5, fill: `url(#${gid})` });
+  paint = svgEl('g', { class: 'fxl fx-paint' }); // provincias vectoriales finas
   gOcc = svgEl('g', { class: 'fxl fx-occ' });
   gSel = svgEl('g', { class: 'fx-selp' });
   gBadge = svgEl('g', { class: 'fxl fx-badges' });
@@ -267,13 +123,36 @@ export function init(svg, defs, world, geo, countries) {
   lastSig = ''; zoomCls = '';
   geoById = {};
   for (const [cid, g] of Object.entries(geo)) geoById[cid] = g;
-  const show = (c) => {
-    // oceano: mosaico simple alrededor (el horneado cubre el VB central)
-    ocean.setAttribute('href', c.sea); ocean.setAttribute('x', 0); ocean.setAttribute('y', 0); ocean.setAttribute('width', VW); ocean.setAttribute('height', VH);
-    paint.setAttribute('href', c.land);
-  };
-  if (bakeCache) show(bakeCache);
-  else setTimeout(() => bake().then(show).catch((e) => console.warn('mapfx bake', e)), 60);
+  drawProvinces();
+}
+
+/** Capa de provincias: celdas Voronoi sin relleno y borde solido muy fino, recortadas a cada pais. */
+function drawProvinces() {
+  if (!paint) return;
+  paint.replaceChildren();
+  const cells = provCells(), geo = geoList();
+  const byC = {};
+  for (const p of geo) { const c = cells[p.pid]; if (c && c.length) (byC[p.c] = byC[p.c] || []).push(polyD(c)); }
+  for (const [cid, list] of Object.entries(byC)) {
+    if (!pathOf(cid)) continue;
+    paint.append(svgEl('g', { 'clip-path': `url(#${clipFor(cid)})` }, svgEl('path', { d: list.join(''), class: 'fx-pb' })));
+  }
+}
+
+/** Color del modo Politico: yo dorado, coalicion/alianza azul, en paz con tratados verde, guerra rojo, resto gris. */
+export function polColor(game, o) {
+  const cbm = document.documentElement.dataset.cb === '1';
+  const me = game.player;
+  if (o === me) return '#b8975a';
+  if (isAtWar(me, o)) return cbm ? '#e8710a' : '#9a4a42';
+  const blocs = (game.ext && game.ext.blocs) || {};
+  const inBloc = Object.values(blocs).some((m) => Array.isArray(m) && m.includes(me) && m.includes(o));
+  if (isAllied(me, o) || inBloc) return cbm ? '#1f77d4' : '#3f6fb5';
+  const pair = (x) => (x.a === me && x.b === o) || (x.a === o && x.b === me);
+  const peace = (game.treaties || []).some((t) => (t.type === 'nap' || t.type === 'trade') && pair(t))
+    || ((game.ext && game.ext.pacts) || []).some(pair);
+  if (peace) return cbm ? '#2ca02c' : '#5f9a52';
+  return '#8a8c78';
 }
 
 export function relColor(o) {
@@ -289,16 +168,14 @@ function drawLayers(game, S) {
   const cells = provCells(), geo = geoList();
   const me = game.player;
 
-  // ocupacion (solo visible en modo 'war')
+  // ocupacion (visible en 'war' y 'pol')
   gOcc.replaceChildren();
-  if (currentMode === 'war') {
+  if (currentMode === 'war' || currentMode === 'pol') {
     const byC = {};
     for (const p of geo) { const s = pr[p.pid]; if (s && s.o !== ownerOf(p.c)) (byC[p.c] = byC[p.c] || []).push([p, s]); }
     for (const [cid, list] of Object.entries(byC)) {
-      const id = 'fxc-' + cid;
-      if (!defsR.querySelector('#' + CSS.escape(id))) defsR.append(svgEl('clipPath', { id }, svgEl('path', { d: pathOf(cid) })));
-      const g = svgEl('g', { 'clip-path': `url(#${id})` });
-      list.forEach(([p, s]) => g.append(svgEl('path', { d: polyD(cells[p.pid] || []), fill: relColor(s.o), class: 'fx-occp' })));
+      const g = svgEl('g', { 'clip-path': `url(#${clipFor(cid)})` });
+      list.forEach(([p, s]) => g.append(svgEl('path', { d: polyD(cells[p.pid] || []), fill: currentMode === 'pol' ? polColor(game, s.o) : relColor(s.o), class: 'fx-occp' })));
       gOcc.append(g);
     }
   }
@@ -342,9 +219,9 @@ function drawLayers(game, S) {
       svgEl('text', { class: 'fx-pn fx-sc' + (s.cap ? ' cap' : '') }, p.n)));
   }
 
-  // marcadores de unidades (solo visible en modo 'war')
+  // marcadores de unidades (CSS: visibles en 'pol' y 'war')
   gUnits.replaceChildren();
-  if (currentMode === 'war' && game.divisions) {
+  if ((currentMode === 'war' || currentMode === 'pol') && game.divisions) {
     drawUnits(game, S);
   }
 
@@ -353,7 +230,7 @@ function drawLayers(game, S) {
 
 const INFRA_KEYS = new Set(['avenida', 'ferrocarril', 'fuerte', 'linea']);
 function clipFor(cid) {
-  const id = 'fxc-' + cid;
+  const id = 'fxc-' + String(cid).replace(/[^a-zA-Z0-9_-]/g, '_');
   if (!defsR.querySelector('#' + CSS.escape(id))) defsR.append(svgEl('clipPath', { id }, svgEl('path', { d: pathOf(cid) })));
   return id;
 }
@@ -438,6 +315,7 @@ function fortG(lv) {
   return g;
 }
 
+const ST_COLOR = { carga: '#d3b160', recarga: '#6aa0d0', marcha: '#cfcfcf' };
 function drawUnits(game, S) {
   if (!gUnits || !game.divisions) return;
   const me = game.player;
@@ -460,21 +338,31 @@ function drawUnits(game, S) {
     const byType = {};
     for (const d of divs) { const kind = kind_of(d); byType[kind] = (byType[kind] || 0) + 1; }
 
-    // Una insignia por tipo, en fila centrada sobre el pais
+    // Una insignia por tipo, en fila centrada sobre el pais; anillo/icono de estado (carga, recarga, marcha)
     const types = Object.keys(byType), n = Math.min(types.length, 6);
     const row = svgEl('g', { transform: `translate(${g.cx.toFixed(1)} ${(g.cy - 10).toFixed(1)})`, class: 'fx-unit' });
     const inner = svgEl('g', { class: 'fx-bsc' });
     types.slice(0, 6).forEach((kind, i) => {
-      const ut = UNIT_TYPES[kind] || UNIT_TYPES.inf;
-      const badge = badgeG(ut.icon || 'infantry', ut.color || '#7b8a4a', 5, 'circ', byType[kind]);
-      badge.setAttribute('transform', `translate(${((i - (n - 1) / 2) * 11.2).toFixed(1)} 0)`);
+      const ut = ROSTER[kind] || ROSTER.inf;
+      const badge = badgeG(ICON_PATHS[ut.icon] ? ut.icon : 'infantry', ut.color || '#7b8a4a', 5, 'circ', byType[kind]);
+      const sts = divs.filter((d) => kind_of(d) === kind).map((d) => d.st).filter((x) => ST_COLOR[x]);
+      const total = byType[kind];
+      if (sts.length) {
+        const st = sts[0], all = sts.length === total && sts.every((x) => x === st);
+        if (all) badge.append(svgEl('circle', { r: 6.6, fill: 'none', stroke: ST_COLOR[st], 'stroke-width': 0.9 }));
+        const mk = svgEl('g', { transform: 'translate(-4.2 -4.2)' },
+          svgEl('circle', { r: 2.6, fill: '#1b2230', stroke: ST_COLOR[st], 'stroke-width': 0.5 }),
+          svgEl('path', { d: ICON_PATHS['u_state_' + st], transform: 'scale(.15) translate(-12 -12)', ...STROKE, 'stroke-width': 3.4 }));
+        badge.append(mk);
+      }
+      badge.setAttribute('transform', `translate(${((i - (n - 1) / 2) * 11.4).toFixed(1)} 0)`);
       inner.append(badge);
     });
     row.append(inner); gUnits.append(row);
   }
 
   // Marcadores de estimación para países EN GUERRA con el jugador
-  for (const [cid, c] of Object.entries(game.countries)) {
+  for (const [cid, c] of currentMode === 'war' ? Object.entries(game.countries) : []) {
     if (!c || cid === me || !isAtWar(cid, me)) continue;
     const g = geoById[cid];
     if (!g) continue;
@@ -499,9 +387,7 @@ function drawSel() {
   if (!selPid) return;
   const gp = P.prov_geo().byId[selPid]; const cell = provCells()[selPid];
   if (!gp || !cell) return;
-  const id = 'fxc-' + gp.c;
-  if (!defsR.querySelector('#' + CSS.escape(id))) defsR.append(svgEl('clipPath', { id }, svgEl('path', { d: pathOf(gp.c) })));
-  gSel.append(svgEl('g', { 'clip-path': `url(#${id})` },
+  gSel.append(svgEl('g', { 'clip-path': `url(#${clipFor(gp.c)})` },
     svgEl('path', { d: polyD(cell), class: 'fx-selfill' }),
     svgEl('path', { d: polyD(cell), class: 'fx-seledge' })));
 }

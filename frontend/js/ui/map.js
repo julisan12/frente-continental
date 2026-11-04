@@ -75,14 +75,7 @@ function modeFill(id, owner, g, fallback) {
     if (isAtWar(owner, me)) return cb() ? '#e8710a' : '#9a4a42';
     return fallback;
   }
-  if (mode === 'pol') {
-    // Político: degradado continuo VERDE (+100) a ROJO (-100/guerra)
-    if (owner === me) return cb() ? '#1f77d4' : '#4f7a9a';
-    const rel = relation(me, owner);
-    const war = isAtWar(owner, me);
-    const v = war ? -100 : rel;
-    return divColor(v);
-  }
+  if (mode === 'pol') return FX.polColor(g, owner); // dorado yo, azul coalicion, verde paz, rojo guerra, gris neutro
   return fallback;
 }
 function setMode(m) {
@@ -120,15 +113,19 @@ function renderLegend() {
       sw('#8a8c78', 'Neutral'));
   } else if (mode === 'res') {
     legendBox.append(h('div', null, 'Recursos y edificios'),
-      h('div', { class: 'muted', style: { fontSize: '10px', marginTop: '3px' } }, 'Insignias visibles solo en este modo'));
+      h('div', { class: 'muted', style: { fontSize: '10px', marginTop: '3px' } }, 'Insignias de recursos y edificios; sin tropas'));
   } else if (mode === 'war') {
     legendBox.append(h('div', null, 'Teatro de operaciones'),
       sw(cb() ? '#e8710a' : '#9a4a42', 'Enemigo en guerra'),
       sw(cb() ? '#1f77d4' : '#4f7a9a', 'Mi país'),
-      h('div', { class: 'muted', style: { fontSize: '10px', marginTop: '3px' } }, 'Unidades y ocupación visible'));
+      h('div', { class: 'muted', style: { fontSize: '10px', marginTop: '3px' } }, 'Unidades, ocupación e infraestructura'));
   } else if (mode === 'pol') {
-    legendBox.append(h('div', null, 'Gradiente político'), grad(divColor(-100), divColor(100), divColor(0)),
-      h('div', { class: 'lg' }, h('span', null, 'Guerra'), h('span', null, 'Neutral'), h('span', null, 'Aliado')));
+    legendBox.append(h('div', null, 'Político'),
+      sw('#b8975a', 'Mi país'),
+      sw(cb() ? '#1f77d4' : '#3f6fb5', 'Aliados de coalición'),
+      sw(cb() ? '#2ca02c' : '#5f9a52', 'En paz / con tratados'),
+      sw('#8a8c78', 'Neutrales'),
+      sw(cb() ? '#e8710a' : '#9a4a42', 'Enemigos (guerra)'));
   }
 }
 
@@ -267,7 +264,7 @@ function colorize() {
     else if (isAtWar(owner, me)) { fill = '#9a4a42'; }
     else if (isAllied(owner, me)) { fill = '#6b7f4a'; }
     else if (owner !== id) { fill = (S.mapById[owner] || mc).color; }
-    if (mode !== 'pol') { try { fill = modeFill(id, owner, g, fill); } catch (e) { /* conserva político */ } }
+    try { fill = modeFill(id, owner, g, fill); } catch (e) { /* conserva el color base */ }
     p.setAttribute('fill', fill);
     p.setAttribute('fill-opacity', op);
     p.classList.toggle('sel', S.selected === id);

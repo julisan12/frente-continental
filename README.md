@@ -123,3 +123,23 @@ Tanda 2 (mapa, conquista, diplomacia agresiva e interfaz; módulos `engine/dipex
   que no se mueven al cambiar de pestaña.
 
 Estos sistemas funcionan solo en modo local (sin conexión). Con el servidor Python se muestra un aviso de que no están disponibles.
+
+Tanda 3 (unidades, edificios y mapa limpio; módulos `engine/roster.js`, `engine/units.js`, `engine/aero.js`, `engine/provinces.js`, `ui/provpanel.js`, `ui/strike.js`):
+
+- **Catálogo de 24 unidades** (infantería, blindados, artillería, aviación, drones, marina, helicópteros) en `engine/roster.js`, cada una con
+  vida, ataque, defensa, velocidad, coste, mantenimiento, ventajas/desventajas contra otros tipos, mejoras investigables, icono y requisitos de
+  edificios. Las partidas anteriores migran los tipos antiguos (motorizada→mecanizada, blindado→tanque ligero, etc.).
+- **Suelo por terreno** (bosque, montaña, llano) con modificadores por clase: infantería gana en bosque; mecanizados y blindados pierden;
+  la artillería a distancia gana en montaña; los blindados ganan en llano y todas las unidades en movimiento ganan +1 de velocidad; la
+  infantería recibe más daño en llano y la artillería solo defendiendo. Se muestran en el panel de provincia y en la ficha de unidad.
+- **Edificios nuevos**: taller (nv 1-3) y fábrica (nv 4-6, exige la técnica «Fábricas»), aeropuerto (capacidad de aeronaves por nivel),
+  puerto, avenida (solo bonifica al dueño), capital única (mover una destruye la anterior y baja la moral), laboratorio central
+  (bloquea técnicas avanzadas en el árbol de investigación), fortaleza (5 niveles), ferrocarril («en carga»: no ataca ni defiende),
+  hospital y radar (a una provincia de otro país como mínimo). Cola de producción por provincia con tiempo reducido por taller.
+- **Aviación, drones, misiles y marina**: radio limitado desde la base, estado de «recarga» tras cada incursión, aeronaves perdidas si se
+  pierde su base, drones de un solo uso (explorador, kamikaze, señuelo), radar que detecta y reduce el daño, curación en hospital, puerto y aeropuerto.
+- **Mapa limpio**: relleno plano por país sin relieve, ruido ni líneas discontinuas; tropas ocultas en Recursos y visibles en Político y Guerra;
+  modo Político: verde = paz o tratados, azul = coalición o aliados, gris = neutros, rojo = enemigos, dorado = el jugador.
+- **Aspecto**: paleta oliva/caqui/latón con camuflaje vectorial, ilustraciones nuevas de edificios y unidades.
+- **Cabecera**: contadores con icono en formato compacto (999, 10k, 1,5M, 1B) con la cifra exacta al tocar; las noticias van arriba y
+  «Por mi cuenta» pasa a la barra inferior (siete botones) con insignia de pendientes.

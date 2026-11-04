@@ -107,6 +107,20 @@ del país en proporciones 60/40 (tropas) y 30/70 (vehículos).
   (`ui/drawer.js`), barra inferior de altura fija y tiras de pestañas (`ui/tabs.js`) fijas en la parte superior de cada pantalla.
   Ilustraciones SVG en `ui/art.js` (edificios por nivel, unidades, acciones, recursos); ficha de unidad en `ui/unitsheet.js`.
 
+## Unidades, edificios y mapa limpio (Tanda 3)
+- **Estado**: `division.kind` es clave de `ROSTER` (24 tipos; `MIGRATE_KIND` migra los antiguos); estados `st` = `carga` | `recarga` | `marcha`
+  (con `rl` = turnos de recarga, `base` = aeropuerto/puerto de aeronaves y barcos, `full` = composición al 100 %). Colas en `game.ext.prodq[cid]`,
+  incursiones y drones en `game.ext.aero`, niveles por clave en `game.ext.prov[pid].b` (esquema `ext.pv = 3`, migración perezosa de partidas viejas).
+- **Combate**: multiplicadores de ataque/defensa = (atk/4 · def/5) × mejoras × suelo × emparejamiento × armas combinadas; pérdidas × (8/vida) ×
+  daño por tipo × suelo × fortaleza × 2 si «en carga». Las unidades en `carga`/`recarga`/`marcha` no cuentan en la defensa ni reciben orden de ataque.
+- **Edificios**: `BUILD` con `tech`, `labc` y `req`; taller 1-3 → fábrica 4-6; `prov_labc_level` bloquea técnicas con `labc`; radar exige
+  técnica y distancia; `capital_move` destruye la capital anterior.
+- **Aviación** (`engine/aero.js`): `strike`, `drone`, `rebase`; radio por saltos entre países desde la base; capacidad `AIRPORT_CAP`/`PORT_CAP`
+  por nivel; `on_prov_lost` reubica o pierde aeronaves.
+- **Mapa**: `ui/mapfx.js` pinta relleno plano por país y solo muestra unidades en Político y Guerra; colores políticos por relación
+  (paz/pactos verde, alianza/bloque azul, neutro gris, guerra rojo, jugador dorado).
+- **Cabecera**: `fmtCompact` (`js/util.js`); `ui/ticker.js` solo muestra noticias; `ui/tasks.js` es la pantalla «Por mi cuenta» (barra inferior).
+
 ## API REST (prefijo /api)
 - `GET  /api/health` → {ok:true, version}
 - `GET  /api/map` → {viewBox:"0 0 500 535", countries:[{id,name,color,path,neighbors,sea,power,alignment,resources}]}

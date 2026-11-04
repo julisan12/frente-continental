@@ -6,6 +6,7 @@ import * as ST from '../state.js';
 import * as F from '../engine/features.js';
 import * as SUPPLY from '../engine/supply.js';
 import { confirmModal } from './modals.js';
+import { prov_labc_level } from '../engine/provinces.js';
 import { getState, setState, player, sendOrder, saveBudget, detail, loadDetail } from '../state.js';
 
 let tab = 'gestion';
@@ -254,12 +255,17 @@ function investigacion() {
       h('div', { class: 'row' }, h('b', { class: 'grow' }, cur.name), h('span', { class: 'muted small' }, Math.round(T.prog || 0) + ' / ' + cur.cost)),
       h('div', { class: 'bar' }, h('i', { style: { width: clamp((T.prog || 0) / (cur.cost || 1) * 100, 0, 100) + '%' } }))) :
       h('div', { class: 'muted small' }, 'Sin investigación en curso.'));
+  const game = getState().game;
+  let labcLv = 0; try { labcLv = prov_labc_level(game, me) || 0; } catch (er) { labcLv = 0; }
+  const labcSum = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Laboratorio central'),
+    h('b', null, 'Laboratorio central: nivel ' + labcLv + '/3'), h('div', { class: 'bar' }, h('i', { style: { width: labcLv / 3 * 100 + '%' } })),
+    h('div', { class: 'muted small' }, labcLv ? 'Construir o mejorar en una provincia (pestaña Infraestructura del panel de provincia).' : 'Construir en una provincia (pestaña Infraestructura del panel de provincia). Desbloquea las tecnologías avanzadas.'));
   const labp = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Laboratorio'),
     h('div', { class: 'row' }, h('b', { class: 'grow' }, 'Nivel ' + lab + '/3'), h('div', { class: 'bar grow' }, h('i', { style: { width: lab / 3 * 100 + '%' } }))),
     h('button', { class: 'btn block', disabled: lab >= 3, onclick: async () => {
       if (await confirmModal({ title: 'Mejorar laboratorio', text: '¿Invertir en mejorar el laboratorio al nivel ' + (lab + 1) + '? Aumenta los puntos de investigación por turno.', okText: 'Mejorar' })) act({ action: 'lab' });
     } }, icon('school'), lab >= 3 ? 'Nivel máximo' : 'Mejorar laboratorio'));
-  const tree = BRANCHES.map(([bk, bl]) => {
+  const tree = (F.BRANCHES || BRANCHES).map(([bk, bl]) => {
     const list = TECHS.filter((t) => t.branch === bk);
     if (!list.length) return null;
     return h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, bl),
@@ -268,17 +274,19 @@ function investigacion() {
         const reqs = [].concat(t.req || []);
         const missing = reqs.filter((r) => !done.includes(r));
         const labMiss = (t.lab || 0) > lab;
-        const locked = !isDone && (missing.length || labMiss);
+        const labcMiss = (t.labc || 0) > labcLv;
+        const locked = !isDone && (missing.length || labMiss || labcMiss);
         const researching = T.cur === t.id;
         return h('div', { class: 'item stack' + (locked ? ' locked' : '') },
           h('div', { class: 'row' }, h('b', { class: 'grow' }, t.name),
             isDone ? h('span', { class: 'pill ally' }, icon('check'), ' Hecho') : researching ? h('span', { class: 'pill me' }, 'En curso') : h('span', { class: 'muted small' }, t.cost + ' pts')),
           h('div', { class: 'muted small' }, t.desc),
           locked ? h('div', { class: 'small down' }, 'Requiere: ' + [...missing.map(nm), ...(labMiss ? ['Laboratorio ' + t.lab] : [])].join(', ')) : null,
+          !isDone && labcMiss ? h('div', { class: 'small down' }, icon('alert'), ' Requiere Laboratorio central nv ' + t.labc + ' (actual: ' + labcLv + ')') : null,
           !isDone && !locked && !researching ? h('button', { class: 'btn sm', onclick: () => act({ action: 'research', tech: t.id }) }, 'Investigar') : null);
       })));
   });
-  return h('div', { class: 'stack' }, head, labp, tree);
+  return h('div', { class: 'stack' }, head, labcSum, labp, tree);
 }
 
 function suministro() {

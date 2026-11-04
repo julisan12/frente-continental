@@ -302,7 +302,7 @@
 .pp-prod { font-size: 11px; color: var(--brass); font-weight: 600; }
 .pp-b { grid-template-columns: 56px 1fr auto auto; min-height: 64px; }
 .pp-b .art { width: 56px; height: 56px; }
-.pp-b.pp-r { grid-template-columns: 48px 1fr auto auto; }
+.pp-b.pp-r { grid-template-columns: 48px 1fr auto; }
 .pp-b.pp-r .art { width: 48px; height: 48px; }
 .pp-b.sel { border-color: var(--brass); box-shadow: 0 0 8px rgba(184,151,90,0.35); }
 .pp-tabbody { display: flex; flex-direction: column; gap: 8px; }
@@ -334,3 +334,20 @@
 .pp-hist { font-size: 12px; color: var(--text); }
 .pp-hist summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--brass); font-weight: 600; }
 .pp-hist-row { padding: 3px 0; border-top: 1px solid var(--line); }
+
+/* Tanda 3: suelo, pestañas de grupo, bloqueos, reclutamiento por clase y cola de producción */
+.pp-soil { color: var(--brass); font-size: 11px; line-height: 1.35; }
+.pp-sub b { color: var(--cream); }
+.pp-tabs button { padding: 6px 4px; font-size: 11.5px; }
+.pp-b.blocked { opacity: 0.62; }
+.pp-b.blocked.sel { opacity: 1; }
+.pp-b .pp-bc { white-space: normal; max-width: 118px; line-height: 1.25; }
+.pp-b.blocked .pp-bc { color: var(--rust, #c0705f); font-size: 10px; font-weight: 400; }
+.pp-why { color: var(--rust, #c0705f); font-weight: 600; }
+.pp-cls { display: flex; flex-direction: column; gap: 5px; }
+.pp-cls-t { font-family: var(--font-serif); color: var(--brass); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid var(--line); padding-bottom: 2px; margin-top: 4px; }
+.pp-ustats { display: block; font-size: 10.5px; font-weight: 400; color: var(--muted); letter-spacing: 0.02em; }
+.pp-prodq { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border: 1px solid var(--brass-dim); border-radius: 6px; background: rgba(185,138,62,0.12); }
+.pp-prodq-row { display: flex; align-items: center; gap: 8px; color: var(--cream); }
+.pp-prodq-row .grow { flex: 1; }
+.pp-dt-desc.muted { color: var(--muted); }

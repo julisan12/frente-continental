@@ -5,6 +5,10 @@ import { PROV, toXY, VARIANTS, variant_of, subdivide } from '../data/provinces.j
 import { capture } from './military.js';
 import { at_war, divisions_of, sync_armies, land_adjacency, use_variant, all_countries } from './state.js';
 import * as UNITS from './units.js';
+import * as AERO from './aero.js';
+import { stock_of } from './supply.js';
+import { ROSTER } from './roster.js';
+import { news } from './extutil.js';
 
 // Tanda 3: catálogo de edificios. Claves ESTABLES (las usan art.js, provpanel.js, mapfx.js, units.js, aero.js).
 //   group    pestaña del panel: eco | mil | infra
@@ -80,6 +84,97 @@ export function prov_max_level(game, ent, kind) {
   for (const p of Object.values(pr)) if (p.o === ent && (p.b[kind] || 0) > m) m = p.b[kind];
   return m;
 }
+
+const techDone = (game, ent, id) => {
+  const t = game && game.ext && game.ext.techs && game.ext.techs[ent];
+  return !!(t && t.done && t.done.includes(id));
+};
+
+/** Nivel del edificio `kind` en la provincia `pid` (0 si no existe). */
+export function prov_building_level(game, pid, kind) {
+  const p = game && game.ext && game.ext.prov && game.ext.prov[pid];
+  return (p && p.b && p.b[kind]) || 0;
+}
+
+/** Fortaleza media (nivel de «fuerte») de las provincias del dueño del país `cid` dentro de ese país. */
+export function prov_fort_level(game, cid) {
+  const pr = game && game.ext && game.ext.prov; const c = game && game.countries[cid];
+  if (!pr || !c) return 0;
+  let sum = 0, n = 0;
+  for (const p of Object.values(pr)) if (p.c === cid && p.o === c.owner) { sum += (p.b.fuerte || 0); n++; }
+  return n ? Math.round((sum / n) * 100) / 100 : 0;
+}
+
+/**
+ * Motivo (string) por el que `ent` NO puede iniciar `kind` en la provincia `pid`, o null si puede.
+ * Comprueba dueño, obra en curso, recurso, técnica, requisitos, nivel máximo, fábrica, radar y puerto.
+ * Simplificación: el puerto puede construirse en cualquier provincia (no se exige costa).
+ */
+export function build_check(game, ent, pid, kind) {
+  const pr = P(game); const p = pr && pr[pid]; const B = BUILD[kind];
+  if (!p || !B) return 'Construcción no válida.';
+  if (p.o !== ent) return 'La provincia no es tuya.';
+  if (p.q) return 'Ya hay una obra en curso.';
+  const lvl = (p.b && p.b[kind]) || 0;
+  if (lvl >= B.max) return 'Nivel máximo.';
+  if (B.need && !B.need.includes(p.r)) return B.name + ' requiere ' + B.need.map((x) => RES[x].name).join(' o ') + '.';
+  if (B.tech && !techDone(game, ent, B.tech)) return B.name + ' requiere la tecnología «' + techTitle(B.tech) + '».';
+  if (B.labc && prov_labc_level(game, ent) < B.labc) return B.name + ' requiere Laboratorio central nivel ' + B.labc + '.';
+  if (B.reqFn) {
+    const r = B.reqFn(p, game, ent);
+    if (typeof r === 'string') return r;
+    if (r === false) return kind === 'lab' ? 'Laboratorio requiere taller o capital.' : B.name + ' no se puede construir aquí.';
+  }
+  if (B.req) {
+    for (const [k, v] of Object.entries(B.req)) {
+      if ((p.b[k] || 0) < v) return B.name + ' requiere ' + BUILD[k].name + ' nivel ' + v + '.';
+    }
+  }
+  if (kind === 'taller' && lvl >= 3 && !techDone(game, ent, 'bld_fab')) return 'La fábrica (taller nv 4+) requiere la tecnología «Fábricas».';
+  if (kind === 'radar') {
+    if (!techDone(game, ent, 'air2')) return 'Radar requiere la tecnología «Radar y alerta temprana».';
+    const G = prov_geo();
+    for (const q of G.adj[pid] || []) {
+      const gq = G.byId[q];
+      if (gq && gq.c !== p.c) return 'El radar no puede estar en una provincia fronteriza (limita con ' + (game.countries[gq.c] ? game.countries[gq.c].name : gq.c) + ').';
+    }
+  }
+  return null;
+}
+
+/** Si construir `kind` en `pid` destruiría una capital existente de `ent`, devuelve el nombre de su provincia (si no, null). */
+export function capital_replaces(game, ent, pid, kind) {
+  if (kind !== 'capital') return null;
+  const pr = P(game); if (!pr) return null;
+  for (const [q, p] of Object.entries(pr)) if (q !== pid && p.o === ent && (p.b.capital || 0) > 0) return prov_geo().byId[q].n;
+  return null;
+}
+
+/** Marca `pid` como la capital de `ent`: destruye las anteriores (−4 de estabilidad; +25 de descontento si estaban en país ocupado). */
+function set_capital(game, ent, pid) {
+  const pr = P(game); const G = prov_geo();
+  let moved = null;
+  for (const [q, p] of Object.entries(pr)) {
+    if (q === pid || p.o !== ent || !(p.b.capital > 0)) continue;
+    p.b.capital = 0; p.cap = false; moved = q;
+    if (p.c !== ent) { // capital ocupada (de un pais conquistado)
+      const u = game.ext.unrest || (game.ext.unrest = {});
+      u[q] = Math.min(100, (u[q] || 0) + 25);
+    }
+  }
+  const np = pr[pid]; np.cap = true; np.b.capital = 1;
+  if (moved && game.countries[ent]) {
+    game.countries[ent].stability = Math.max(0, (game.countries[ent].stability || 0) - 4);
+    news(game, 'La capital se traslada a ' + G.byId[pid].n + ' (−4 de estabilidad: penalización de moral).', 'eco');
+  }
+  return moved;
+}
+
+function techTitle(id) {
+  const names = { bld_aero: 'Aeropuertos', bld_puerto: 'Puertos militares', bld_hosp: 'Hospitales de campaña', bld_rail: 'Ferrocarril', bld_fab: 'Fábricas', air2: 'Radar y alerta temprana' };
+  return names[id] || id;
+}
+
 export const RES = {
   petroleo: { name: 'Petróleo', icon: 'oil' },
   gas: { name: 'Gas', icon: 'gas' },
@@ -224,17 +319,22 @@ export function init_prov(game) {
 const P = (game) => game.ext && game.ext.prov;
 export function provs_of_country(game, cid) { return Object.keys(P(game) || {}).filter((pid) => P(game)[pid].c === cid); }
 
-/** Tropas que defienden la provincia (k). */
+/** Tropas que defienden la provincia (k). Fortaleza ×(1+0,10/nivel); los cañones estáticos del dueño suman def×0,5. */
 export function prov_defense(game, pid) {
   const p = P(game)[pid]; const G = prov_geo(); const gp = G.byId[pid];
   let gar = p.g || 0;
   const c = game.countries[p.c];
   if (c && p.o === c.owner) {
     const n = provs_of_country(game, p.c).filter((q) => P(game)[q].o === p.o).length || 1;
-    gar += divisions_of(game, p.o).filter((d) => d.location === p.c).reduce((s, d) => s + d.troops + d.tanks * 0.03 + d.planes * 0.04, 0) / n;
+    const here = divisions_of(game, p.o).filter((d) => d.location === p.c);
+    gar += here.reduce((s, d) => s + d.troops + d.tanks * 0.03 + d.planes * 0.04, 0) / n;
+    for (const d of here) {
+      const k = d.kind || UNITS.kind_of(d);
+      if ((k === 'cfort' || k === 'cnav') && ROSTER[k]) gar += ROSTER[k].def * 0.5;
+    }
   }
-  const fortBonus = 1 + 0.4 * (p.b.fuerte || 0) + 0.2 * (p.b.linea || 0);
-  const mul = (TERR_DEF[gp && gp.t] || 1) * (1 + 0.35 * (p.b.base || 0)) * (p.cap ? 1.25 : 1) * fortBonus;
+  const mul = (TERR_DEF[gp && gp.t] || 1) * (1 + 0.35 * (p.b.base || 0)) * (p.cap ? 1.25 : 1)
+    * (1 + 0.10 * (p.b.fuerte || 0)) * (1 + 0.2 * (p.b.linea || 0));
   return Math.round((gar + 4) * mul * 10) / 10;
 }
 
@@ -280,7 +380,9 @@ export function prov_attack(game, ent, pid, rng, free) {
   const me = game.countries[ent];
   if (!free) { if ((me.money || 0) < ATTACK_COST) return { ok: false, error: 'Fondos insuficientes (' + ATTACK_COST + ').' }; me.money -= ATTACK_COST; }
   const r = () => (rng ? rng.random() : Math.random());
-  const att = prov_attack_power(game, ent) * (0.8 + 0.4 * r());
+  let basePow = null;
+  try { basePow = UNITS.prov_strike_power(game, ent, pid); } catch (e) { basePow = null; }
+  const att = (typeof basePow === 'number' && isFinite(basePow) ? basePow : prov_attack_power(game, ent)) * (0.8 + 0.4 * r());
   const def = prov_defense(game, pid) * (0.8 + 0.4 * r());
   const name = prov_geo().byId[pid].n;
   const old = p.o;
@@ -288,11 +390,14 @@ export function prov_attack(game, ent, pid, rng, free) {
   const win = att > def;
   p.fx = { k: win ? 'win' : 'fail', t: game.turn };
   if (win) {
-    _loseTroops(game, old, att * 0.15, p.c);
+    _loseTroops(game, old, att * 0.15 * (1 - 0.05 * (p.b.fuerte || 0)), p.c);
     p.o = ent; p.g = Math.round(att * 0.2 * 10) / 10; p.q = null;
     p.b.base = Math.max(0, p.b.base - 1);
     p.b.linea = 0;
     p.b.fuerte = Math.max(0, (p.b.fuerte || 0) - 1);
+    for (const k of ['aeropuerto', 'puerto', 'radar']) p.b[k] = Math.max(0, (p.b[k] || 0) - 1);
+    p.b.capital = 0; // la capital (edificio) no se hereda; p.cap sigue marcando la capital histórica
+    try { AERO.on_prov_lost(game, pid, old); } catch (e) { /* aviación opcional */ }
     try { UNITS.on_prov_capture(game, ent, pid, old); } catch (e) { /* botin/descontento opcionales */ }
     // pais completo: si cae la capital o todas sus provincias
     const own = game.countries[p.c].owner;
@@ -300,7 +405,7 @@ export function prov_attack(game, ent, pid, rng, free) {
     if (own !== ent && (p.cap || rest.length === 0)) {
       capture(game, ent, p.c);
       _relocate(game, own, p.c);
-      for (const q of provs_of_country(game, p.c)) if (pr[q].o === own) pr[q].o = ent;
+      for (const q of provs_of_country(game, p.c)) if (pr[q].o === own) { pr[q].o = ent; pr[q].b.capital = 0; try { AERO.on_prov_lost(game, q, own); } catch (e) { /* opcional */ } }
       game.ext.cown[p.c] = ent;
     }
   } else {
@@ -313,25 +418,80 @@ export function prov_attack(game, ent, pid, rng, free) {
 export function prov_build(game, ent, pid, kind, free) {
   const pr = P(game); const p = pr && pr[pid]; const B = BUILD[kind];
   if (!p || !B) return { ok: false, error: 'Construcción no válida.' };
-  if (p.o !== ent) return { ok: false, error: 'La provincia no es tuya.' };
-  if (p.q) return { ok: false, error: 'Ya hay una obra en curso.' };
-  if (B.need && !B.need.includes(p.r)) return { ok: false, error: B.name + ' requiere ' + B.need.map((x) => RES[x].name).join(' o ') + '.' };
-  if (B.reqFn && !B.reqFn(p)) return { ok: false, error: B.name + ' requiere taller o capital.' };
-  if (B.req) {
-    for (const [k, v] of Object.entries(B.req)) {
-      if ((p.b[k] || 0) < v) return { ok: false, error: B.name + ' requiere ' + BUILD[k].name + ' nivel ' + v + '.' };
-    }
-  }
-  const lvl = p.b[kind] || 0;
-  if (lvl >= B.max) return { ok: false, error: 'Nivel máximo.' };
-  const cost = Math.round(B.cost * (1 + 0.5 * lvl));
+  const why = build_check(game, ent, pid, kind);
+  if (why) return { ok: false, error: why };
+  const cost = build_cost(p, kind);
   const me = game.countries[ent];
   if (!free) { if ((me.money || 0) < cost) return { ok: false, error: 'Fondos insuficientes (' + cost + ').' }; me.money -= cost; }
   p.q = { kind, turns: B.turns };
-  return { ok: true, msg: 'Obra iniciada: ' + B.name + ' en ' + prov_geo().byId[pid].n + '.' };
+  return { ok: true, msg: 'Obra iniciada: ' + build_name(kind, (p.b[kind] || 0) + 1) + ' en ' + prov_geo().byId[pid].n + '.' };
 }
 
 export function build_cost(p, kind) { return Math.round(BUILD[kind].cost * (1 + 0.5 * (p.b[kind] || 0))); }
+
+const LAND_CLS = ['inf', 'arm', 'art'];
+const HEAL_GOODS = 0.5;
+function div_missing(d) {
+  const ut = ROSTER[d.kind || UNITS.kind_of(d)]; if (!ut) return false;
+  return d.troops < ut.troops - 0.01 || d.tanks < ut.tanks - 0.01 || d.planes < ut.planes - 0.01;
+}
+/** Cura local de reserva si UNITS.heal no existe: recupera `frac` de la composicion completa. */
+function heal_local(d, frac) {
+  const ut = ROSTER[d.kind || UNITS.kind_of(d)]; if (!ut) return;
+  d.troops = Math.min(ut.troops, d.troops + ut.troops * frac);
+  d.tanks = Math.min(ut.tanks, d.tanks + ut.tanks * frac);
+  d.planes = Math.min(ut.planes, d.planes + ut.planes * frac);
+}
+/** Hospitales: por pais, el mejor hospital del dueño cura 10 % x nivel de cada division terrestre danada (0,5 bienes c/u). */
+function hospital_turn(game, lines) {
+  const pr = game.ext.prov; const me = game.player;
+  const best = {}; // dueño|pais -> nivel
+  for (const p of Object.values(pr)) {
+    if ((p.b.hospital || 0) > 0 && game.countries[p.o]) { const k = p.o + '|' + p.c; best[k] = Math.max(best[k] || 0, p.b.hospital); }
+  }
+  const healed = {}, dry = {};
+  for (const [k, lv] of Object.entries(best)) {
+    const [o, cid] = k.split('|');
+    const st = stock_of(game, o);
+    for (const d of divisions_of(game, o)) {
+      if (d.location !== cid) continue;
+      const kind = d.kind || UNITS.kind_of(d); const ut = ROSTER[kind];
+      if (!ut || !LAND_CLS.includes(ut.cls) || !div_missing(d)) continue;
+      if ((st.goods || 0) < HEAL_GOODS) { dry[o] = true; continue; }
+      st.goods = Math.round(((st.goods || 0) - HEAL_GOODS) * 100) / 100;
+      if (typeof UNITS.heal === 'function') UNITS.heal(game, d, 0.10 * lv); else heal_local(d, 0.10 * lv);
+      healed[o] = (healed[o] || 0) + 1;
+    }
+  }
+  if (healed[me]) { const n = healed[me]; lines.push('Hospitales: ' + n + (n === 1 ? ' división curada' : ' divisiones curadas') + ' (−' + (Math.round(n * HEAL_GOODS * 10) / 10) + ' bienes).'); }
+  if (dry[me]) lines.push('Hospitales sin bienes: algunas divisiones heridas no se curan.');
+}
+
+/** IA: 1 obra cada 3 turnos. Primero economia (granja/mina/refineria/taller 1-3), luego militar e infraestructura. */
+const AI_ECO = ['granja', 'mina', 'refineria', 'taller'];
+const AI_MIL = [['fuerte', 2], ['aeropuerto', 1], ['hospital', 1], ['base', 2], ['puerto', 1], ['labc', 1], ['avenida', 2], ['ferrocarril', 1], ['lab', 1], ['taller', 9]];
+function ai_build(game, o, rng) {
+  const pr = game.ext.prov; const money = game.countries[o].money || 0;
+  const mine = Object.keys(pr).filter((pid) => pr[pid].o === o);
+  if (!mine.length) return;
+  const total = (k) => mine.reduce((s, pid) => s + (pr[pid].b[k] || 0), 0);
+  const ecoLv = AI_ECO.reduce((s, k) => s + (k === 'taller' ? mine.reduce((a, pid) => a + Math.min(3, pr[pid].b.taller || 0), 0) : total(k)), 0);
+  const tryKinds = (kinds, shuffle) => {
+    const order = shuffle ? kinds.slice().sort(() => rng.random() - 0.5) : kinds;
+    for (const k of order) {
+      const opts = mine.filter((pid) => !build_check(game, o, pid, k) && !(k === 'taller' && kinds === AI_ECO && (pr[pid].b.taller || 0) >= 3) && build_cost(pr[pid], k) * 1.2 <= money);
+      if (opts.length) { const pid = opts[Math.floor(rng.random() * opts.length)]; return prov_build(game, o, pid, k, false).ok; }
+    }
+    return false;
+  };
+  const ecoGoal = 2 + Math.floor(mine.length / 8) + Math.floor(game.turn / 10);
+  if (ecoLv < ecoGoal && tryKinds(AI_ECO, true)) return;
+  for (const [k, goal] of AI_MIL) {
+    if (total(k) >= goal + (k === 'fuerte' ? Math.floor(mine.length / 8) : 0)) continue;
+    if (tryKinds([k])) return;
+  }
+  tryKinds(AI_ECO, true);
+}
 
 // ------------------------------------------------------------------ turno
 export function prov_turn(game, rng, lines) {
@@ -341,47 +501,59 @@ export function prov_turn(game, rng, lines) {
   for (const [cid, c] of Object.entries(game.countries)) {
     const was = e.cown[cid];
     if (was !== undefined && was !== c.owner) {
-      for (const pid of provs_of_country(game, cid)) if (pr[pid].o === was) { pr[pid].o = c.owner; pr[pid].q = null; }
+      for (const pid of provs_of_country(game, cid)) if (pr[pid].o === was) { pr[pid].o = c.owner; pr[pid].q = null; pr[pid].b.capital = 0; try { AERO.on_prov_lost(game, pid, was); } catch (e) { /* opcional */ } }
     }
     e.cown[cid] = c.owner;
   }
   // 2) colas de obra y rendimientos
   const gain = {};
   const add = (o, k, v) => { (gain[o] = gain[o] || { m: 0, s: 0, t: 0 })[k] += v; };
+  const G = prov_geo();
   for (const [pid, p] of Object.entries(pr)) {
     if (p.fx && game.turn - p.fx.t > 1) delete p.fx;
     if (p.q) {
       p.q.turns -= 1;
       if (p.q.turns <= 0) {
-        p.b[p.q.kind] = (p.b[p.q.kind] || 0) + 1;
-        if (p.o === me) lines.push('Obra terminada: ' + BUILD[p.q.kind].name + ' nv ' + p.b[p.q.kind] + ' en ' + prov_geo().byId[pid].n + '.');
+        const kind = p.q.kind;
+        p.b[kind] = (p.b[kind] || 0) + 1;
         p.q = null;
+        if (kind === 'capital') set_capital(game, p.o, pid);
+        if (p.o === me) {
+          const txt = 'Obra terminada: ' + build_name(kind, p.b[kind]) + ' en ' + G.byId[pid].n + '.';
+          lines.push(txt); news(game, txt, 'eco');
+          if (kind === 'taller' && p.b.taller === 3 && techDone(game, me, 'bld_fab')) {
+            const t2 = 'Puedes evolucionar el taller de ' + G.byId[pid].n + ' a fábrica.';
+            lines.push(t2); news(game, t2, 'eco');
+          }
+        }
       }
     }
     if (!game.countries[p.o]) continue;
-    if (p.r) add(p.o, 'm', 1.5);
-    add(p.o, 'm', 2 * Math.min(3, p.b.taller || 0) + 4 * Math.max(0, (p.b.taller || 0) - 3) + 6 * p.b.refineria + 4 * p.b.mina + 2 * p.b.granja + 0.6 * (p.b.avenida || 0) + 1.5 * (p.b.ferrocarril || 0));
+    add(p.o, 'm', prov_yield(game, pid).money);
     add(p.o, 's', 0.15 * p.b.granja);
     add(p.o, 't', 0.6 * p.b.base);
     if (p.g > 0 && p.o !== game.countries[p.c].owner) p.g = Math.min(60, p.g + 0.5 * p.b.base);
   }
-  // 2b) carreteras: recuperacion de organizacion de divisiones
-  const roadByOwner = {};
-  for (const [pid, p] of Object.entries(pr)) {
-    if (!game.countries[p.o]) continue;
-    const cid = p.c;
-    if (!roadByOwner[p.o]) roadByOwner[p.o] = {};
-    if (!roadByOwner[p.o][cid]) roadByOwner[p.o][cid] = { sum: 0, cnt: 0 };
-    roadByOwner[p.o][cid].sum += (p.b.avenida || 0);
-    roadByOwner[p.o][cid].cnt += 1;
+  // 2b) avenidas: +5 de organizacion a las divisiones del DUEÑO en el pais (nunca a otros)
+  const roads = new Set();
+  for (const p of Object.values(pr)) if ((p.b.avenida || 0) > 0 && game.countries[p.o]) roads.add(p.o + '|' + p.c);
+  for (const key of roads) {
+    const [o, cid] = key.split('|');
+    for (const d of divisions_of(game, o)) if (d.location === cid) d.org = Math.min(100, (d.org || 0) + 5);
   }
-  for (const [o, byC] of Object.entries(roadByOwner)) {
-    for (const [cid, { sum, cnt }] of Object.entries(byC)) {
-      const avg = Math.round(sum / cnt);
-      const ds = divisions_of(game, o).filter((d) => d.location === cid);
-      for (const d of ds) d.org = Math.min(100, (d.org || 0) + 2 * avg);
+  // 2c) capital: calma el descontento (−2 en su provincia; con «Orgullo patrio» −1 en todas las del pais)
+  const un = game.ext.unrest;
+  if (un) {
+    for (const [pid, p] of Object.entries(pr)) {
+      if (!(p.b.capital > 0) || !game.countries[p.o]) continue;
+      if (un[pid]) un[pid] = Math.max(0, un[pid] - 2);
+      if (techDone(game, p.o, 'mor3')) {
+        for (const [q, pq] of Object.entries(pr)) if (pq.o === p.o && q !== pid && un[q]) un[q] = Math.max(0, un[q] - 1);
+      }
     }
   }
+  // 2d) hospitales: curan las divisiones terrestres del dueño en el pais de la provincia
+  hospital_turn(game, lines);
   for (const [o, v] of Object.entries(gain)) {
     const c = game.countries[o]; if (!c) continue;
     c.money = (c.money || 0) + Math.round(v.m * 10) / 10;
@@ -389,27 +561,11 @@ export function prov_turn(game, rng, lines) {
     if (v.t > 0) { const ds = divisions_of(game, o); if (ds.length) ds[0].troops += v.t; }
   }
   if (gain[me] && gain[me].m > 0) lines.push('Provincias: +' + Math.round(gain[me].m) + ' de recursos y edificios.');
-  // 3) IA: construye y ataca provincias limitrofes
+  // 3) IA: construye con criterio y ataca provincias limitrofes
   const owners = new Set(Object.values(pr).map((p) => p.o));
   for (const o of owners) {
     if (o === me || !game.countries[o]) continue;
-    const mine = Object.keys(pr).filter((pid) => pr[pid].o === o);
-    if (rng.random() < 0.3 && mine.length) {
-      const pid = mine[Math.floor(rng.random() * mine.length)]; const p = pr[pid];
-      const opts = Object.keys(BUILD).filter((k) => {
-        if (p.b[k] >= BUILD[k].max) return false;
-        if (BUILD[k].need && !BUILD[k].need.includes(p.r)) return false;
-        if (BUILD[k].reqFn && !BUILD[k].reqFn(p)) return false;
-        if (BUILD[k].req) {
-          for (const [rk, rv] of Object.entries(BUILD[k].req)) {
-            if ((p.b[rk] || 0) < rv) return false;
-          }
-        }
-        return true;
-      });
-      const k = opts[Math.floor(rng.random() * opts.length)];
-      if (k && (game.countries[o].money || 0) > build_cost(p, k) * 2) prov_build(game, o, pid, k, false);
-    }
+    if ((game.turn + hash(o)) % 3 === 0) ai_build(game, o, rng);
     const tg = prov_targets(game, o);
     if (tg.length && rng.random() < 0.35) {
       const pid = tg.reduce((b, q) => (prov_defense(game, q) < prov_defense(game, b) ? q : b));
@@ -443,7 +599,9 @@ export function prov_yield(game, pid) {
   metal += 2 * (p.b.mina || 0);
   goods += 0.5 * Math.min(3, p.b.taller || 0) + 1.0 * Math.max(0, (p.b.taller || 0) - 3);
   money += 2 * Math.min(3, p.b.taller || 0) + 4 * Math.max(0, (p.b.taller || 0) - 3) + 6 * (p.b.refineria || 0) + 4 * (p.b.mina || 0) + 2 * (p.b.granja || 0) + 0.6 * (p.b.avenida || 0) + 1.5 * (p.b.ferrocarril || 0);
-  return { money: Math.round(money * 10) / 10, food: Math.round(food * 10) / 10, fuel: Math.round(fuel * 10) / 10, goods: Math.round(goods * 10) / 10, metal: Math.round(metal * 10) / 10 };
+  const f = 1 + 0.10 * Math.max(0, (p.b.taller || 0) - 3); // fábrica: +10 % por nivel a dinero y recursos
+  const r = (x) => Math.round(x * f * 10) / 10;
+  return { money: r(money), food: r(food), fuel: r(fuel), goods: r(goods), metal: r(metal) };
 }
 
 /**
@@ -451,6 +609,7 @@ export function prov_yield(game, pid) {
  * Devuelve {ok,msg}|{ok:false,error} o null si la accion no es de este modulo.
  */
 export function prov_action(game, ent, body) {
+  if (body.action === 'capital_move') return prov_build(game, ent, body.pid, 'capital', false);
   if (body.action === 'prov_recruit') {
     const pr = P(game); const p = pr && pr[body.pid];
     if (!p) return { ok: false, error: 'Provincia desconocida.' };
@@ -472,7 +631,7 @@ export function prov_lab_levels(game, ent) {
   const pr = P(game); if (!pr) return 0;
   let sum = 0;
   for (const [pid, p] of Object.entries(pr)) {
-    if (p.o === ent) sum += (p.b.lab || 0);
+    if (p.o === ent) sum += (p.b.lab || 0) + 2 * (p.b.labc || 0); // el laboratorio central cuenta el doble
   }
   return sum;
 }
@@ -516,24 +675,21 @@ export function prov_pending(game) {
   const me = game.player; const list = [];
   const mine = Object.keys(pr).filter((pid) => pr[pid].o === me);
   const myMoney = (game.countries[me] && game.countries[me].money) || 0;
+  const G = prov_geo();
+  let canBuild = 0;
   for (const pid of mine) {
-    const p = pr[pid]; const gp = prov_geo().byId[pid];
+    const p = pr[pid]; const gp = G.byId[pid];
     if (p.q) {
-      if (p.q.turns === 1) list.push({ text: 'Obra terminará: ' + BUILD[p.q.kind].name + ' en ' + gp.n, kind: 'eco', screen: 'map' });
-    } else {
-      const opts = Object.keys(BUILD).filter((k) => {
-        if (p.b[k] >= BUILD[k].max) return false;
-        if (BUILD[k].need && !BUILD[k].need.includes(p.r)) return false;
-        if (BUILD[k].reqFn && !BUILD[k].reqFn(p)) return false;
-        if (BUILD[k].req) {
-          for (const [rk, rv] of Object.entries(BUILD[k].req)) {
-            if ((p.b[rk] || 0) < rv) return false;
-          }
-        }
-        return build_cost(p, k) <= myMoney;
-      });
-      if (opts.length > 0 && list.length < 2) list.push({ text: 'Puedes construir en ' + gp.n, kind: 'eco', screen: 'map' });
+      if (p.q.turns === 1) list.push({ text: 'Obra terminará: ' + build_name(p.q.kind, (p.b[p.q.kind] || 0) + 1) + ' en ' + gp.n, kind: 'eco', screen: 'map' });
+      continue;
+    }
+    if ((p.b.taller || 0) === 3 && techDone(game, me, 'bld_fab') && !build_check(game, me, pid, 'taller') && build_cost(p, 'taller') <= myMoney) {
+      list.push({ text: 'Puedes evolucionar el taller de ' + gp.n + ' a fábrica', kind: 'eco', screen: 'map' });
+      continue;
+    }
+    if (canBuild < 1 && Object.keys(BUILD).some((k) => !build_check(game, me, pid, k) && build_cost(p, k) <= myMoney)) {
+      canBuild++; list.push({ text: 'Puedes construir en ' + gp.n, kind: 'eco', screen: 'map' });
     }
   }
-  return list;
+  return list.slice(0, 4);
 }

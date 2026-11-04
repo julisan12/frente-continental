@@ -8,8 +8,8 @@
 .news-ticker {
   display: flex;
   align-items: stretch;
-  min-height: 34px;
-  max-height: 34px;
+  min-height: 44px;
+  max-height: 44px;
   background: var(--bg-hdr2);
   border-bottom: 1px solid rgba(184, 151, 90, 0.15);
   overflow: hidden;
@@ -106,10 +106,10 @@
 }
 
 .ticker-btn {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
+  width: 34px;
+  height: 44px;
+  min-width: 34px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -192,9 +192,9 @@
   }
 
   .ticker-btn {
-    width: 26px;
-    height: 26px;
-    min-width: 26px;
-    min-height: 26px;
+    width: 32px;
+    height: 44px;
+    min-width: 32px;
+    min-height: 44px;
   }
 }

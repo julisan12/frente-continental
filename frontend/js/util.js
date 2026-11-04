@@ -124,3 +124,53 @@ for (const P of [Element.prototype, DocumentFragment.prototype]) {
     P[m] = function (...kids) { return orig.apply(this, kids.flat(Infinity).filter((k) => k != null && k !== false && k !== true)); };
   }
 }
+
+// ---- Tanda 3 (F): cifras compactas y exactas ----
+/**
+ * Cifra compacta en español. Sufijos: k = mil (10^3), M = millón (10^6), B = MIL MILLONES (10^9, «billón»
+ * estadounidense, no el billón español) y T = billón español (10^12, solo para cifras monetarias enormes).
+ * Máximo 1 decimal con coma, sin decimal si es entero. Negativos con «−». Con {money:true} el valor se toma
+ * en unidades internas, se pasa a dólares (× MONEY_SCALE millones) y se antepone «$»: 60 → «$600M».
+ */
+export function fmtCompact(n, opts) {
+  if (n == null || isNaN(n)) return '-';
+  const money = !!(opts && opts.money);
+  let v = money ? n * MONEY_SCALE * 1e6 : n;
+  const neg = v < 0;
+  v = Math.abs(v);
+  let out;
+  const units = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M'], [1e3, 'k']];
+  const u = units.find(([f]) => v >= f);
+  if (!u) out = String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  else {
+    let x = Math.round(v / u[0] * 10) / 10;
+    let suf = u[1];
+    if (x >= 1000 && suf !== 'T') { // 999.960 → 1.000k se reexpresa como 1M
+      const i = units.findIndex((q) => q[1] === suf);
+      x = Math.round(x / 1000 * 10) / 10; suf = units[i - 1][1];
+    }
+    out = (Number.isInteger(x) ? String(x) : x.toFixed(1).replace('.', ',')) + suf;
+  }
+  return (neg && out !== '0' ? '−' : '') + (money ? '$' : '') + out;
+}
+
+const _W1 = ['', 'un', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve'];
+/** Nombre en palabras de m × 10^g (g múltiplo de 3, m ∈ {1..9, 10, 100}) para 10^3 ≤ n < 10^15; si no, ''. */
+export function wordsOf(n) {
+  if (n == null || isNaN(n) || n < 1000 || n >= 1e15) return '';
+  const g = Math.floor(Math.log10(n) / 3) * 3;
+  const m = Math.round(n / 10 ** g);
+  if (n !== m * 10 ** g || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 100].includes(m)) return '';
+  const mw = m === 10 ? 'diez' : m === 100 ? 'cien' : _W1[m];
+  if (g === 3) return m === 1 ? 'mil' : mw + ' mil';
+  if (g === 6) return m === 1 ? 'un millón' : mw + ' millones';
+  if (g === 9) return m === 1 ? 'mil millones' : mw + ' mil millones';
+  return m === 1 ? 'un billón' : mw + ' billones';
+}
+/** Cifra completa con puntos de miles («10.000») y, solo para cifras redondas (1k, 10k, 100k, 1M…), «(diez mil)». */
+export function fmtExact(n, opts) {
+  if (n == null || isNaN(n)) return '-';
+  const base = (n < 0 ? '−' : '') + String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const w = wordsOf(Math.abs(Math.round(n)));
+  return w && !(opts && opts.noWords) ? base + ' (' + w + ')' : base;
+}

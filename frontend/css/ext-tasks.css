@@ -1,1 +1,34 @@
-/* Tanda 3: pantalla Por mi cuenta (trabajador F) */
+/* Tanda 3: pantalla Por mi cuenta (trabajador F) y barra inferior de 7 botones */
+.nav{grid-template-columns:repeat(7,minmax(0,1fr));gap:1px}
+.nav button .nl{font-size:10px;letter-spacing:-.02em}
+.nav button .ico{width:21px;height:21px}
+
+.tasks{padding-bottom:12px}
+.tasks-title{font-size:20px;color:var(--cream)}
+.task-group{display:flex;flex-direction:column;gap:6px}
+.task-hd{display:flex;align-items:center;gap:6px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.task-n{font-size:11px;border-radius:10px;padding:0 7px;background:rgba(184,151,90,.2);color:var(--cream)}
+.task{display:flex;align-items:center;gap:8px;min-height:52px;padding:4px 6px 4px 10px;border:1px solid rgba(184,151,90,.3);border-left-width:4px;border-radius:8px;background:rgba(5,10,20,.4)}
+.task.urgent{border-left-color:var(--rust);background:rgba(154,74,66,.14)}
+.task.pending{border-left-color:var(--amber)}
+.task.idea{border-left-color:var(--olive)}
+.task-ic{flex:none;display:flex}
+.task-ic .ico{width:20px;height:20px;color:var(--brass)}
+.task.urgent .task-ic .ico{color:var(--rust)}
+.task-tx{flex:1;min-width:0;font-size:13px;line-height:1.3}
+.task-go{flex:none;min-width:52px}
+
+/* Cabecera: contadores de recursos con icono (dos filas de 4) */
+.brand{min-height:34px;gap:8px}
+.brand .emblem{width:28px;height:28px}
+.brand h1{font-size:16px}
+.brand h1::after{margin-top:2px}
+.brand .when{margin-left:auto;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.stats.res{grid-template-columns:repeat(4,minmax(0,1fr));margin-top:2px}
+.stats.res.few{grid-template-columns:repeat(4,minmax(0,1fr))}
+.stats.res .stat{display:flex;align-items:center;justify-content:center;gap:4px;padding:4px 2px;border-bottom:1px solid rgba(184,151,90,.14);min-height:44px}
+.stats.res .stat:nth-child(4n){border-right:0}
+.stats.res .stat .ico{width:16px;height:16px;color:var(--brass);flex:none}
+.stats.res .stat .v{font-size:13px;overflow:visible}
+.stats.res .stat.warn .v,.stats.res .stat.warn .ico{color:var(--rust)}
+@media(max-width:420px){.stats.res{grid-template-columns:repeat(4,minmax(0,1fr))}.stats.res .stat .v{font-size:12.5px}}

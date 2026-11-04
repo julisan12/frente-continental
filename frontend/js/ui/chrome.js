@@ -1,18 +1,26 @@
 // Cabecera de estadisticas, navegacion inferior y pie con "Finalizar turno".
 import { showNews } from './more.js';
 import { play } from './sound.js';
-import { h, fmtNum, fmtMoney, fmtSigned, deltaClass, toast } from '../util.js';
+import { h, fmtNum, fmtCompact, fmtExact, wordsOf, toast, MONEY_SCALE } from '../util.js';
 import { icon, emblem } from '../icons.js';
 import { getState, setState, delOrder, endTurn, player } from '../state.js';
 import { confirmModal, turnReport, gameOver, newGameFlow } from './modals.js';
 import { newsTicker, destroyTicker } from './ticker.js';
+import { countTasks, countByScreen, goTo } from './tasks.js';
 
 const NAV = [
   ['map', 'map', 'Mapa'], ['country', 'flag', 'País'], ['economy', 'coins', 'Economía'],
-  ['army', 'shield', 'Ejército'], ['diplomacy', 'rings', 'Diplomacia'], ['more', 'menu', 'Más'],
+  ['army', 'shield', 'Ejército'], ['diplomacy', 'rings', 'Diplom.'], ['tasks', 'check', 'Mi cuenta'], ['more', 'menu', 'Más'],
 ];
 
 const go = (screen) => setState({ screen });
+
+// Contador de la cabecera: icono + valor compacto; el nombre y la cifra exacta van en title/aria-label.
+function chip(ic, label, val, exact, screen, warn) {
+  const full = label + ': ' + exact;
+  return h('button', { class: 'stat' + (warn ? ' warn' : ''), title: full, 'aria-label': full, onclick: () => (screen === 'more' ? goTo('more') : go(screen)) },
+    icon(ic), h('span', { class: 'v' }, val));
+}
 
 export function renderHeader(el) {
   const S = getState();
@@ -22,26 +30,30 @@ export function renderHeader(el) {
     destroyTicker();
     return;
   }
-  const c = g.countries[g.player];
-  const sm = g.summary || {};
-  const dl = sm.deltas || {};
-  const allies = (g.treaties || []).filter((t) => t.type === 'alliance' && (t.a === g.player || t.b === g.player)).length;
-  const wars = (g.wars || []).filter((w) => w.a === g.player || w.b === g.player).length;
-  const stat = (label, val, delta, screen, money) => h('button', { class: 'stat', 'aria-label': label + ': ' + val, onclick: () => go(screen) },
-    h('span', { class: 'l' }, label),
-    h('span', { class: 'v' }, val),
-    delta != null && delta !== 0 ? h('span', { class: 'd ' + deltaClass(delta) }, fmtSigned(delta, money)) : h('span', { class: 'd muted' }, ' '));
+  const me = g.player;
+  const c = g.countries[me];
+  const dollars = c.money * MONEY_SCALE * 1e6;
+  const w = wordsOf(Math.round(dollars));
+  const moneyExact = '$ ' + fmtNum(c.money * MONEY_SCALE) + ' M' + (w ? ' (' + w + ')' : '');
+  const troops = totalTroops(g);
+  const chips = [chip('coins', 'Dinero', fmtCompact(c.money, { money: true }), moneyExact, 'economy')];
+  if (g.ext) {
+    const stock = (g.ext.stock && g.ext.stock[me]) || {};
+    const short = (g.ext.supply && g.ext.supply[me] && g.ext.supply[me].short) || {};
+    [['food', 'wheat', 'Alimentos'], ['fuel', 'fire', 'Combustible'], ['goods', 'box', 'Bienes'], ['metal', 'ingot', 'Metal']].forEach(([res, ic, name]) => {
+      const v = stock[res] || 0;
+      chips.push(chip(ic, name, fmtCompact(v), fmtExact(v) + (short[res] > 0.05 ? ' · escasez' : ''), 'economy', short[res] > 0.05));
+    });
+  }
+  chips.push(
+    chip('shield', 'Ejército', fmtCompact(troops * 1000), fmtExact(troops * 1000) + ' tropas', 'army'),
+    chip('heart', 'Estabilidad', Math.round(c.stability) + '%', Math.round(c.stability) + '%', 'economy', c.stability < 25),
+    chip('hourglass', 'Turno', g.max_turns ? `${g.turn}/${g.max_turns}` : String(g.turn), g.max_turns ? `${g.turn} de ${g.max_turns}` : String(g.turn), 'more'));
   const tickerEl = newsTicker(g);
   el.append(
-    h('div', { class: 'brand' }, emblem(), h('h1', null, 'Frente Continental')),
-    h('div', { class: 'stats' },
-      stat('Turno', g.max_turns ? `${g.turn}/${g.max_turns}` : String(g.turn), null, 'more'),
-      stat('Dinero', fmtMoney(c.money), dl.money, 'economy', true),
-      stat('Estab.', Math.round(c.stability) + '%', dl.stability, 'economy'),
-      stat('Industria', fmtNum(c.industry), dl.industry, 'economy'),
-      stat('Ejército', fmtNum(totalTroops(g)) + 'k', null, 'army'),
-      stat('Diplom.', allies + ' / ' + wars, null, 'diplomacy')),
-    h('div', { class: 'muted small', style: { textAlign: 'center' } }, g.date + ' · ' + c.name),
+    h('div', { class: 'brand' }, emblem(), h('h1', null, 'Frente Continental'),
+      h('span', { class: 'when' }, g.date + ' · ' + c.name)),
+    h('div', { class: 'stats res' + (g.ext ? '' : ' few') }, chips),
     tickerEl);
 }
 
@@ -53,64 +65,26 @@ export function totalTroops(g) {
   return (g.divisions || []).filter((d) => d.owner === g.player).reduce((s, d) => s + (d.troops || 0), 0);
 }
 
-// Cuenta decisiones pendientes por pantalla
+// Insignias por pantalla: tareas urgentes/pendientes de «Por mi cuenta» agrupadas por su pantalla destino.
 function countDecisionsByScreen(g) {
   if (!g) return {};
-
-  const counts = { economy: 0, diplomacy: 0, army: 0, more: 0 };
-  const me = g.player;
-  const c = g.countries[me];
-
-  // Evento activo
-  if (g.active_event) counts.more++;
-
-  // Votación OEA sin votar
-  if (g.ext && Array.isArray(g.ext.oas)) {
-    const pending = g.ext.oas.find((o) => !o.player_vote && o.turn === g.turn);
-    if (pending) counts.diplomacy++;
-  }
-
-  // Sin investigación
-  if (g.ext && g.ext.techs && g.ext.techs[me] && g.ext.techs[me].cur == null) {
-    const labs = g.ext.labs && g.ext.labs[me] ? g.ext.labs[me] : 0;
-    if (labs > 0) counts.economy++;
-  }
-
-  // Sin enfoque nacional
-  if (g.ext && g.ext.policy && g.ext.policy[me] && g.ext.policy[me].focus == null && g.ext.policy[me].focus_id == null) {
-    counts.economy++;
-  }
-
-  // Pactos que expiran
-  if (g.ext && Array.isArray(g.ext.pacts)) {
-    const expiring = g.ext.pacts.filter((p) => (p.a === me || p.b === me) && p.until && p.until <= g.turn + 2);
-    counts.diplomacy += expiring.length;
-  }
-
-  // Dinero bajo o déficit
-  const summary = g.summary || {};
-  if (c.money < 20 || (summary.balance != null && summary.balance < 0)) {
-    counts.economy++;
-  }
-
-  // Divisiones con org < 40
-  const divs = (g.divisions || []).filter((d) => d.owner === me && d.org != null && d.org < 40);
-  counts.army += divs.length;
-
-  return counts;
+  const c = countByScreen(g);
+  delete c.map; // el mapa nunca llevó insignia
+  return c;
 }
 
 export function renderNav(el) {
   const S = getState();
   const counts = countDecisionsByScreen(S.game);
   const badgeOf = (id) => {
+    if (id === 'tasks') { const n = countTasks(S.game); return n > 0 ? [String(Math.min(n, 9)), ' num'] : null; }
     if (id === 'more' && S.game && S.game.active_event) return ['!', ''];
     if (counts[id] > 0) return [String(Math.min(counts[id], 9)), ' num'];
     return null;
   };
-  // Reutiliza los 6 botones: solo se actualizan atributos y la insignia (sin parpadeo ni saltos).
+  // Reutiliza los 7 botones: solo se actualizan atributos y la insignia (sin parpadeo ni saltos).
   if (el.children.length !== NAV.length) {
-    el.replaceChildren(...NAV.map(([id, ic, label]) => h('button', { 'data-nav': id, 'aria-label': label, onclick: () => go(id) },
+    el.replaceChildren(...NAV.map(([id, ic, label]) => h('button', { 'data-nav': id, 'aria-label': ({ tasks: 'Por mi cuenta', diplomacy: 'Diplomacia' })[id] || label, onclick: () => go(id) },
       icon(ic), h('span', { class: 'nl' }, label))));
   }
   NAV.forEach(([id], i) => {

@@ -1,1 +1,200 @@
-/* Tanda 1: estilos de ticker (ver el modulo JS correspondiente) */
+/* Carrusel de noticias tipo noticiero de TV */
+
+.ticker-wrapper {
+  margin-top: 4px;
+  border-top: 1px solid rgba(184, 151, 90, 0.25);
+}
+
+.news-ticker {
+  display: flex;
+  align-items: stretch;
+  min-height: 34px;
+  max-height: 34px;
+  background: var(--bg-hdr2);
+  border-bottom: 1px solid rgba(184, 151, 90, 0.15);
+  overflow: hidden;
+}
+
+/* Pestaña izquierda: "ÚLTIMA HORA" o "DECISIÓN" */
+.ticker-tag {
+  flex: none;
+  width: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-head);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-right: 1px solid rgba(184, 151, 90, 0.3);
+  padding: 0 6px;
+  text-align: center;
+}
+
+.ticker-tag.news {
+  background: linear-gradient(135deg, rgba(184, 151, 90, 0.25), rgba(184, 151, 90, 0.15));
+  color: var(--brass);
+}
+
+.ticker-tag.decision {
+  background: linear-gradient(135deg, rgba(154, 74, 66, 0.35), rgba(107, 49, 44, 0.25));
+  color: var(--rust);
+  border-right-color: var(--rust);
+}
+
+/* Centro: contenido que rota */
+.ticker-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.ticker-content:hover {
+  background: rgba(184, 151, 90, 0.08);
+}
+
+.ticker-content:active {
+  background: rgba(184, 151, 90, 0.15);
+}
+
+.ticker-content .ico {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--brass);
+}
+
+.ticker-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+/* Derecha: contador y botones */
+.ticker-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-left: 1px solid rgba(184, 151, 90, 0.2);
+}
+
+.ticker-counter {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 0 4px;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  min-width: 36px;
+  text-align: center;
+}
+
+.ticker-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(184, 151, 90, 0.12);
+  border: 1px solid rgba(184, 151, 90, 0.25);
+  border-radius: 4px;
+  color: var(--cream);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+  line-height: 1;
+}
+
+.ticker-btn:hover {
+  background: rgba(184, 151, 90, 0.22);
+  border-color: var(--brass);
+}
+
+.ticker-btn:active {
+  transform: translateY(1px);
+  background: rgba(184, 151, 90, 0.3);
+}
+
+.ticker-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+/* Badge numérico en la navegación */
+.nav button .badge.num {
+  background: var(--amber);
+  color: var(--bg-deep);
+  font-weight: 700;
+}
+
+/* Animación de transición entre ítems */
+@keyframes ticker-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ticker-content {
+  animation: ticker-slide-in 0.3s ease-out;
+}
+
+/* Respeto a prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .ticker-content {
+    animation: none;
+  }
+
+  .ticker-btn:active {
+    transform: none;
+  }
+}
+
+/* Ajustes para pantallas muy pequeñas */
+@media (max-width: 380px) {
+  .ticker-tag {
+    width: 70px;
+    font-size: 8px;
+  }
+
+  .ticker-content {
+    font-size: 11px;
+    padding: 0 6px;
+  }
+
+  .ticker-counter {
+    font-size: 9px;
+    min-width: 30px;
+  }
+
+  .ticker-btn {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+  }
+}

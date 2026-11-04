@@ -5,6 +5,7 @@ import { h, fmtNum, fmtMoney, fmtSigned, deltaClass, toast } from '../util.js';
 import { icon, emblem } from '../icons.js';
 import { getState, setState, delOrder, endTurn, player } from '../state.js';
 import { confirmModal, turnReport, gameOver, newGameFlow } from './modals.js';
+import { newsTicker, destroyTicker } from './ticker.js';
 
 const NAV = [
   ['map', 'map', 'Mapa'], ['country', 'flag', 'País'], ['economy', 'coins', 'Economía'],
@@ -17,7 +18,10 @@ export function renderHeader(el) {
   const S = getState();
   const g = S.game;
   el.replaceChildren();
-  if (!g) return;
+  if (!g) {
+    destroyTicker();
+    return;
+  }
   const c = g.countries[g.player];
   const sm = g.summary || {};
   const dl = sm.deltas || {};
@@ -27,6 +31,7 @@ export function renderHeader(el) {
     h('span', { class: 'l' }, label),
     h('span', { class: 'v' }, val),
     delta != null && delta !== 0 ? h('span', { class: 'd ' + deltaClass(delta) }, fmtSigned(delta, money)) : h('span', { class: 'd muted' }, ' '));
+  const tickerEl = newsTicker(g);
   el.append(
     h('div', { class: 'brand' }, emblem(), h('h1', null, 'Frente Continental')),
     h('div', { class: 'stats' },
@@ -37,16 +42,9 @@ export function renderHeader(el) {
       stat('Ejército', fmtNum(totalTroops(g)) + 'k', null, 'army'),
       stat('Diplom.', allies + ' / ' + wars, null, 'diplomacy')),
     h('div', { class: 'muted small', style: { textAlign: 'center' } }, g.date + ' · ' + c.name),
-    ticker(g));
+    tickerEl);
 }
 
-function ticker(g) {
-  const news = g.ext && Array.isArray(g.ext.news) ? g.ext.news : [];
-  const n = news[news.length - 1];
-  if (!n) return null;
-  return h('button', { class: 'ticker ' + (n.kind || 'info'), 'aria-label': 'Última noticia: ' + n.text, onclick: () => { showNews(); go('more'); } },
-    'T' + n.turn + ' · ' + n.text);
-}
 
 // Tropas totales del jugador (todas sus divisiones, dondequiera que esten).
 export function totalTroops(g) {
@@ -55,10 +53,64 @@ export function totalTroops(g) {
   return (g.divisions || []).filter((d) => d.owner === g.player).reduce((s, d) => s + (d.troops || 0), 0);
 }
 
+// Cuenta decisiones pendientes por pantalla
+function countDecisionsByScreen(g) {
+  if (!g) return {};
+
+  const counts = { economy: 0, diplomacy: 0, army: 0, more: 0 };
+  const me = g.player;
+  const c = g.countries[me];
+
+  // Evento activo
+  if (g.active_event) counts.more++;
+
+  // Votación OEA sin votar
+  if (g.ext && Array.isArray(g.ext.oas)) {
+    const pending = g.ext.oas.find((o) => !o.player_vote && o.turn === g.turn);
+    if (pending) counts.diplomacy++;
+  }
+
+  // Sin investigación
+  if (g.ext && g.ext.techs && g.ext.techs[me] && g.ext.techs[me].cur == null) {
+    const labs = g.ext.labs && g.ext.labs[me] ? g.ext.labs[me] : 0;
+    if (labs > 0) counts.economy++;
+  }
+
+  // Sin enfoque nacional
+  if (g.ext && g.ext.policy && g.ext.policy[me] && g.ext.policy[me].focus == null && g.ext.policy[me].focus_id == null) {
+    counts.economy++;
+  }
+
+  // Pactos que expiran
+  if (g.ext && Array.isArray(g.ext.pacts)) {
+    const expiring = g.ext.pacts.filter((p) => (p.a === me || p.b === me) && p.until && p.until <= g.turn + 2);
+    counts.diplomacy += expiring.length;
+  }
+
+  // Dinero bajo o déficit
+  const summary = g.summary || {};
+  if (c.money < 20 || (summary.balance != null && summary.balance < 0)) {
+    counts.economy++;
+  }
+
+  // Divisiones con org < 40
+  const divs = (g.divisions || []).filter((d) => d.owner === me && d.org != null && d.org < 40);
+  counts.army += divs.length;
+
+  return counts;
+}
+
 export function renderNav(el) {
   const S = getState();
+  const counts = countDecisionsByScreen(S.game);
   el.replaceChildren(...NAV.map(([id, ic, label]) => {
-    const badge = id === 'more' && S.game && S.game.active_event ? h('span', { class: 'badge', 'aria-hidden': 'true' }, '!') : null;
+    let badge = null;
+    if (id === 'more' && S.game && S.game.active_event) {
+      badge = h('span', { class: 'badge', 'aria-hidden': 'true' }, '!');
+    } else if (counts[id] > 0) {
+      const cnt = Math.min(counts[id], 9);
+      badge = h('span', { class: 'badge num', 'aria-hidden': 'true' }, String(cnt));
+    }
     return h('button', { 'aria-label': label, 'aria-current': S.screen === id ? 'page' : null, onclick: () => go(id) }, icon(ic), h('span', null, label), badge);
   }));
 }

@@ -38,3 +38,14 @@
   min-height: 36px;
   font-size: 18px;
 }
+
+/* Tanda 2: tarjetas con ilustración, capacidad y estimador */
+.item .unit-art { cursor: pointer; }
+.sheet-btn { min-height: 44px; min-width: 56px; display: inline-flex; align-items: center; justify-content: center; }
+.cap-box { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid rgba(184, 151, 90, .35); border-radius: 8px; background: rgba(5, 10, 20, .45); }
+.est-divs { flex-wrap: wrap; gap: 6px; }
+.est-divs .btn { min-height: 44px; }
+.est-divs .btn.off { opacity: .5; }
+.est-mods { border-top: 1px solid rgba(184, 151, 90, .25); padding-top: 4px; }
+.est-mods .us-row b.good { color: var(--olive-l, #a3b366); }
+.est-mods .us-row b.bad { color: var(--rust, #9a4a42); }

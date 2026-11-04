@@ -4,9 +4,11 @@ import { icon } from '../icons.js';
 import { statusPills } from './country.js';
 import * as F from '../engine/features.js';
 import { getState, player, cname, ownerOf, isAllied, neighborsOf, sendOrder, delOrder, extAction } from '../state.js';
-import { UNIT_TYPES, MODS, kind_of, div_attack_mult } from '../engine/units.js';
+import { UNIT_TYPES, kind_of, div_attack_mult, unit_stats, recruit_check, prod_queue, prod_turns, default_pid, ensure_div } from '../engine/units.js';
+import { CLASS_NAME, SOIL_NAME, TERRAIN_GROUP, soil_mods } from '../engine/roster.js';
+import { airPanel } from './strike.js';
 import { division_power, is_sea_route } from '../engine/state.js';
-import { attack_logistics_mult, country_defense_mult } from '../engine/provinces.js';
+import { attack_logistics_mult, country_defense_mult, prov_geo } from '../engine/provinces.js';
 import { army_cap, army_used } from '../engine/dipext.js';
 import * as C from '../engine/constants.js';
 import { TERRAIN } from '../data/provinces.js';
@@ -41,20 +43,29 @@ function order(div, type, target) {
   return sendOrder({ type, division_id: div.id, target: target || div.location });
 }
 
+const STATE_LABEL = { carga: 'En carga', marcha: 'En marcha', recarga: 'Recarga' };
+
 function divCard(div) {
+  const g = getState().game;
   const on = div.id === selId;
-  const queued = (getState().game.orders || []).filter((o) => o.division_id === div.id).length;
+  const queued = (g.orders || []).filter((o) => o.division_id === div.id).length;
   const k = kind_of(div);
   const ut = UNIT_TYPES[k];
+  const st = unit_stats(g, div) || { vida: 1, state: 'lista' };
+  const vida = Math.round(st.vida * 100);
   const typeName = ut ? ut.name : '';
   const divIcon = h('span', { class: 'art-card unit-art', role: 'button', tabindex: '0', 'aria-label': 'Ficha de ' + div.name,
     onclick: (e) => { e.stopPropagation(); openUnitSheet(div); } }, artUnit(k, { size: 44 }));
+  const stLabel = st.state === 'lista' ? null : STATE_LABEL[st.state] + (st.state === 'recarga' && st.rl ? ' ' + st.rl : '');
   return h('button', { class: 'item stack', 'aria-pressed': String(on), onclick: () => { selId = on ? null : div.id; picking = null; rerender(); } },
     h('div', { class: 'row', style: { alignItems: 'center', gap: '8px' } }, divIcon, h('b', { class: 'grow' }, div.name + (typeName ? ' · ' + typeName : '')),
+      stLabel ? h('span', { class: 'pill st-' + st.state }, stLabel) : null,
       queued ? h('span', { class: 'pill' }, queued + ' orden' + (queued === 1 ? '' : 'es')) : null,
       h('span', { class: 'btn small sheet-btn', role: 'button', onclick: (e) => { e.stopPropagation(); openUnitSheet(div); } }, 'Ficha')),
     h('div', { class: 'muted small' }, `${cname(div.location)} · ${STANCE[div.stance] || div.stance} · ${fmtNum(div.troops)}k tropas`
       + (div.tanks ? ` · ${fmtNum(div.tanks)} tanques` : '') + (div.planes ? ` · ${fmtNum(div.planes)} aviones` : '')),
+    h('div', { class: 'row small', style: { gap: '6px', alignItems: 'center' } }, h('span', { class: 'muted' }, 'Vida'),
+      h('div', { class: 'bar grow ' + (vida < 30 ? 'bad' : vida < 60 ? 'warn' : '') }, h('i', { style: { width: vida + '%' } })), h('b', null, vida + '%')),
     div.org != null ? h('div', { class: 'bar ' + (div.org < 30 ? 'bad' : div.org < 55 ? 'warn' : '') }, h('i', { style: { width: Math.max(0, Math.min(100, div.org)) + '%' } })) : null);
 }
 
@@ -105,32 +116,90 @@ function techLabel(id) {
   return t ? t.name : id;
 }
 
+let prodPid = null;                 // provincia de producción elegida (null = capital)
+const openCls = new Set(['inf']);  // clases desplegadas en «Reclutar»
+
+function provLabel(g, pid) {
+  const p = g.ext.prov[pid]; let n = pid;
+  try { n = prov_geo().byId[pid].n; } catch (e) { /* opcional */ }
+  const b = p.b || {};
+  const tags = [p.cap ? '★' : '', b.taller ? 'T' + b.taller : '', b.aeropuerto ? 'A' + b.aeropuerto : '', b.puerto ? 'P' + b.puerto : '', b.fuerte ? 'F' + b.fuerte : ''].filter(Boolean).join(' ');
+  return n + (tags ? ' · ' + tags : '');
+}
+
+function recruitCard(g, me, k, pid) {
+  const u = UNIT_TYPES[k];
+  const why = recruit_check(g, me, k, pid);
+  const needsText = u.needs && Object.keys(u.needs).length ? Object.entries(u.needs).map(([r, v]) => `${RES_NAMES[r] || r} ${v}`).join(', ') : '';
+  const st = unit_stats(g, k, me);
+  return h('div', { class: 'card unit-card stack' },
+    h('div', { class: 'row', style: { alignItems: 'center', gap: '8px' } },
+      h('div', { class: 'art-card' }, artUnit(k, { size: 56 })),
+      h('div', { class: 'stack grow' }, h('b', null, u.name), h('span', { class: 'muted small' }, `${CLASS_NAME[u.cls] || u.cls} · ${prod_turns(g, k, pid)} turno${prod_turns(g, k, pid) === 1 ? '' : 's'}`))),
+    h('div', { class: 'muted small' }, u.desc),
+    h('div', { class: 'us-chips' },
+      h('span', { class: 'pill' }, `Vida ${fmtDec(st.hp)}`), h('span', { class: 'pill' }, `Atq ${fmtDec(st.atk)}`),
+      h('span', { class: 'pill' }, `Def ${fmtDec(st.def)}`), h('span', { class: 'pill' }, `Vel ${st.spd}`),
+      h('span', { class: 'pill' }, `Mant. ${fmtMoney(st.upkeep)}`)),
+    needsText ? h('div', { class: 'muted small' }, `Recursos: ${needsText}`) : null,
+    why ? h('div', { class: 'small warn' }, '⚠ ' + why) : h('div', { class: 'muted small' }, '✓ Disponible'),
+    h('button', {
+      class: 'btn block' + (why ? ' disabled' : ' primary'),
+      disabled: !!why,
+      'aria-label': 'Reclutar ' + u.name,
+      onclick: async () => { await extAction({ action: 'unit_recruit', kind: k, pid: pid || undefined }); rerender(); },
+    }, icon('plus'), `Reclutar (${fmtMoney(u.cost)})`));
+}
+
 function unitsPanel() {
   const g = getState().game, me = player();
   if (!g || !UNIT_TYPES) return null;
-  const techs = g.ext && g.ext.techs && g.ext.techs[me] && g.ext.techs[me].done ? g.ext.techs[me].done : [];
-  const home = g.countries[me];
-  return h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Reclutar unidades'),
-    h('div', { class: 'cards' }, Object.keys(UNIT_TYPES).map((k) => {
-      const u = UNIT_TYPES[k];
-      const hasReq = !u.tech || techs.includes(u.tech);
-      const canAfford = home && home.money >= u.cost;
-      const needsText = u.needs && Object.keys(u.needs).length ? Object.entries(u.needs).map(([r, v]) => `${RES_NAMES[r] || r} ${v}`).join(', ') : '';
-      return h('div', { class: 'card unit-card stack' },
-        h('div', { class: 'row', style: { alignItems: 'center', gap: '8px' } },
-          h('div', { class: 'art-card' }, artUnit(k, { size: 56 })),
-          h('b', { class: 'grow' }, u.name)),
-        h('div', { class: 'muted small' }, u.desc),
-        h('div', { class: 'muted small' }, `${fmtNum(u.troops)}k tropas` + (u.tanks ? ` · ${fmtNum(u.tanks)} tanques` : '') + (u.planes ? ` · ${fmtNum(u.planes)} aviones` : '')),
-        h('div', { class: 'muted small' }, `Atq ${u.atk > 1 ? '+' : ''}${Math.round((u.atk - 1) * 100)}% · Def ${u.def > 1 ? '+' : ''}${Math.round((u.def - 1) * 100)}%`),
-        u.tech ? h('div', { class: 'muted small' + (hasReq ? '' : ' warn') }, hasReq ? `✓ ${techLabel(u.tech)}` : `⚠ Requiere ${techLabel(u.tech)}`) : null,
-        needsText ? h('div', { class: 'muted small' }, `Recursos: ${needsText}`) : null,
-        h('button', {
-          class: 'btn block' + (!hasReq || !canAfford ? ' disabled' : ''),
-          disabled: !hasReq || !canAfford,
-          onclick: async () => { await extAction({ action: 'unit_recruit', kind: k }); rerender(); },
-        }, icon('plus'), `Reclutar (${fmtMoney(u.cost)})`));
-    })));
+  const root = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Reclutar'));
+  let pid = null;
+  if (g.ext && g.ext.prov) {
+    const mine = Object.keys(g.ext.prov).filter((q) => g.ext.prov[q].o === me);
+    const def = default_pid(g, me);
+    if (!prodPid || !mine.includes(prodPid)) prodPid = null;
+    pid = prodPid || def;
+    mine.sort((a, b) => (g.ext.prov[b].cap ? 1 : 0) - (g.ext.prov[a].cap ? 1 : 0) || provLabel(g, a).localeCompare(provLabel(g, b), 'es'));
+    root.append(h('label', { class: 'stack small' }, h('span', { class: 'muted' }, 'Provincia de producción (T taller · A aeropuerto · P puerto · F fortaleza)'),
+      h('select', { 'aria-label': 'Provincia de producción', style: { minHeight: '44px' }, onchange: (e) => { prodPid = e.target.value || null; rerender(); } },
+        mine.map((q) => { const o = h('option', { value: q }, provLabel(g, q)); if (q === pid) o.selected = true; return o; }))));
+  }
+  const groups = {};
+  Object.keys(UNIT_TYPES).forEach((k) => { (groups[UNIT_TYPES[k].cls] = groups[UNIT_TYPES[k].cls] || []).push(k); });
+  Object.keys(CLASS_NAME).forEach((cls) => {
+    const list = groups[cls]; if (!list) return;
+    const avail = list.filter((k) => !recruit_check(g, me, k, pid)).length;
+    const det = h('details', { class: 'rec-group' }, h('summary', { class: 'rec-sum' }, `${CLASS_NAME[cls]} · ${avail}/${list.length} disponibles`),
+      h('div', { class: 'cards' }, list.map((k) => recruitCard(g, me, k, pid))));
+    if (openCls.has(cls)) det.open = true;
+    det.addEventListener('toggle', () => { if (det.open) openCls.add(cls); else openCls.delete(cls); });
+    root.append(det);
+  });
+  return root;
+}
+
+function productionPanel() {
+  const g = getState().game, me = player();
+  if (!g || !g.ext) return null;
+  const q = prod_queue(g, me);
+  const root = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'En producción'));
+  if (!q.length) { root.append(h('div', { class: 'empty' }, 'Nada en producción. Recluta unidades arriba.')); return root; }
+  q.forEach((it) => {
+    const u = UNIT_TYPES[it.kind]; if (!u) return;
+    const pct = Math.round(((it.total - it.left) / it.total) * 100);
+    let where = it.pid; try { where = prov_geo().byId[it.pid].n; } catch (e) { /* opcional */ }
+    root.append(h('div', { class: 'item stack' },
+      h('div', { class: 'row', style: { alignItems: 'center', gap: '8px' } },
+        h('div', { class: 'art-card' }, artUnit(it.kind, { size: 40 })),
+        h('div', { class: 'stack grow' }, h('b', null, u.name), h('span', { class: 'muted small' }, `${where || cname(me)} · ${it.left} turno${it.left === 1 ? '' : 's'} restante${it.left === 1 ? '' : 's'}`)),
+        h('button', { class: 'btn small sheet-btn', 'aria-label': 'Cancelar producción de ' + u.name,
+          onclick: async () => { await extAction({ action: 'prod_cancel', id: it.id }); rerender(); } }, icon('trash'), 'Cancelar')),
+      h('div', { class: 'bar' }, h('i', { style: { width: pct + '%' } }))));
+  });
+  root.append(h('div', { class: 'muted small' }, 'Cancelar reembolsa el 50 % del coste.'));
+  return root;
 }
 
 let estExcl = new Set(); // divisiones excluidas del cálculo
@@ -172,7 +241,7 @@ function estimator() {
     if (own !== me && !isAllied(own, me)) { p *= C.SUPPLY_PENALTY; supAny = true; }
     atk += p;
     logiW += lg * division_power(d); logiP += division_power(d);
-    const mt = terr && MODS[k] && MODS[k].terr ? MODS[k].terr[terr] : null;
+    const mt = terr ? soil_mods(k, terr).atk : null;
     if (mt && mt !== 1) kindMods[k] = mt;
   });
   atk *= C.ATTACK_FACTOR * rangeA;
@@ -180,7 +249,7 @@ function estimator() {
   // ---- defensa (estimada con la vista del jugador)
   const infra = (tc && tc.infrastructure) || 0;
   const garrison = tc ? (tc.army || 0) + (tc.tanks || 0) * C.TANK_POWER + (tc.planes || 0) * C.PLANE_POWER : 0;
-  const infDef = UNIT_TYPES.inf.def * ((MODS.inf.terr && terr && MODS.inf.terr[terr]) || 1);
+  const infDef = (UNIT_TYPES.inf.def / 5) * (terr ? soil_mods('inf', terr).def : 1);
   const cdm = country_defense_mult(g, target);
   const home = ownerOf(target) === target ? 1 + C.HOME_DEFENSE_BONUS : 1;
   const rangeD = C.DEFENSE_RANGE[0] + C.DEFENSE_RANGE[1] / 2;
@@ -206,7 +275,7 @@ function estimator() {
   // ---- desglose de modificadores
   const mods = [];
   if (terrName) mods.push(['Terreno dominante', terrName]);
-  Object.entries(kindMods).forEach(([k, m]) => mods.push([`${UNIT_TYPES[k].name} en ${terrName.toLowerCase()}`, '×' + fmtDec(m, 2), m > 1 ? 'good' : 'bad']));
+  Object.entries(kindMods).forEach(([k, m]) => mods.push([`${UNIT_TYPES[k].name} en ${SOIL_NAME[TERRAIN_GROUP[terr]].toLowerCase()}`, '×' + fmtDec(m, 2), m > 1 ? 'good' : 'bad']));
   if (logiP > 0 && logiW / logiP > 1.001) mods.push(['Logística (vías y carreteras)', '×' + fmtDec(logiW / logiP, 2), 'good']);
   if (cdm > 1.001) mods.push(['Fortalezas del defensor', '×' + fmtDec(cdm, 2), 'bad']);
   if (home > 1) mods.push(['Defensa en territorio de origen', '+' + Math.round(C.HOME_DEFENSE_BONUS * 100) + ' %', 'bad']);
@@ -221,7 +290,7 @@ function estimator() {
     h('div', { class: 'row' }, h('span', { class: 'odds-big ' + cls }, pc + '%'), h('b', { class: 'grow ' + cls }, verdict)),
     h('div', { class: 'bar ' + (p < 0.4 ? 'bad' : p < 0.6 ? 'warn' : '') }, h('i', { style: { width: pc + '%' } })),
     mods.length ? h('div', { class: 'est-mods' }, mods.map(([a, b, c]) => h('div', { class: 'us-row' }, h('span', { class: 'muted small' }, a), h('b', { class: c || '' }, b)))) : null,
-    h('div', { class: 'muted small' }, 'Incluye tipo de unidad, terreno, logística y fortificaciones; la organización y la niebla de guerra siguen siendo estimadas.'));
+    h('div', { class: 'muted small' }, 'Incluye ataque/defensa de cada tipo (con mejoras), suelo, logística y fortificaciones; los emparejamientos dependen de las tropas enemigas, que se desconocen hasta el combate.'));
   return root;
 }
 
@@ -309,36 +378,6 @@ function formationsPanel() {
   return root;
 }
 
-function modsPanel() {
-  if (!UNIT_TYPES) return null;
-  const MODS = {
-    inf: { good: ['B', 'V', 'P'], bad: ['S', 'M', 'D', 'A'] },
-    mot: { good: ['P', 'V', 'E', 'D'], bad: ['S', 'M', 'A'] },
-    arm: { good: ['P', 'D', 'V'], bad: ['S', 'M', 'A', 'B'] },
-    art: { good: ['P', 'E'], bad: ['M', 'A'] },
-    mtn: { good: ['M', 'A'], bad: ['P', 'D', 'V'] },
-    mar: { good: ['S', 'T'], bad: ['D', 'A'] },
-    air: { good: ['P', 'V', 'D'], bad: ['M', 'S'] },
-    esp: { good: ['B', 'S', 'T'], bad: [] }
-  };
-  const TNAMES = { S: 'Selva', M: 'Montaña', D: 'Desierto', P: 'Pampa', V: 'Sabana', B: 'Bosque', E: 'Estepa', T: 'Tropical', A: 'Altiplano' };
-  const root = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Ventajas y desventajas'));
-  Object.keys(UNIT_TYPES).forEach((k) => {
-    const u = UNIT_TYPES[k];
-    const m = MODS[k];
-    if (!m) return;
-    const good = m.good.map((t) => TNAMES[t] || t).join(', ');
-    const bad = m.bad.map((t) => TNAMES[t] || t).join(', ');
-    root.append(h('div', { class: 'item stack' },
-      h('div', { class: 'row', style: { alignItems: 'center', gap: '8px' } },
-        h('div', { class: 'unit-icon', style: { backgroundColor: u.color } }, icon(u.icon)),
-        h('b', null, u.name)),
-      good ? h('div', { class: 'muted small' }, `✓ Favorables: ${good}`) : null,
-      bad ? h('div', { class: 'muted small' }, `✗ Desfavorables: ${bad}`) : null));
-  });
-  return root;
-}
-
 function lootPanel() {
   const g = getState().game, me = player();
   if (!g || !g.ext || !g.ext.loot) return null;
@@ -385,6 +424,7 @@ export function render(el) {
   void S.game.countries[me];
   // totales de todas las divisiones del jugador (no solo las del territorio natal)
   const tot = divs.reduce((t, d) => ({ troops: t.troops + (d.troops || 0), tanks: t.tanks + (d.tanks || 0), planes: t.planes + (d.planes || 0) }), { troops: 0, tanks: 0, planes: 0 });
+  divs.forEach((d) => ensure_div(S.game, d));
   const sel = divs.find((d) => d.id === selId);
   el.append(
     h('h2', null, 'Ejército'),
@@ -398,7 +438,7 @@ export function render(el) {
     sel ? actions(sel) : null,
     queue());
   // cada panel opcional falla por separado: un error en uno no oculta los demás
-  [unitsPanel, formationsPanel, modsPanel, lootPanel, estimator, techBonuses].forEach((fn) => {
+  [airPanel, productionPanel, unitsPanel, formationsPanel, lootPanel, estimator, techBonuses].forEach((fn) => {
     try { const n = fn(); if (n) el.append(n); } catch (e) { console.warn('army:', fn.name, e); }
   });
 }

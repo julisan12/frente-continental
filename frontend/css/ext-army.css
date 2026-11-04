@@ -49,3 +49,21 @@
 .est-mods { border-top: 1px solid rgba(184, 151, 90, .25); padding-top: 4px; }
 .est-mods .us-row b.good { color: var(--olive-l, #a3b366); }
 .est-mods .us-row b.bad { color: var(--rust, #9a4a42); }
+
+/* Tanda 3: estados, vida, reclutar por clase, producción y ficha ampliada */
+.pill.st-carga, .pill.st-marcha, .pill.st-recarga { background: rgba(154, 74, 66, .25); color: var(--rust, #c27a6e); border-color: rgba(154, 74, 66, .5); }
+.rec-group { border: 1px solid rgba(184, 151, 90, .25); border-radius: 8px; padding: 0 8px 8px; }
+.rec-sum { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 700; }
+.rec-group .cards { grid-template-columns: 1fr; }
+.rec-group .unit-card { min-width: 0; }
+.us-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.small.warn { color: var(--amber, #d9a441); }
+.unit-card .btn.disabled, .unit-card .btn:disabled { opacity: .55; }
+.us-soil { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.us-soilrow { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 4px; align-items: center; padding: 5px 6px; min-height: 30px; border-radius: 6px; border: 1px solid rgba(184, 151, 90, .2); font-size: 13px; }
+.us-soilrow b { text-align: right; font-weight: 600; }
+.us-soilrow b.good { color: var(--olive-l, #a3b366); }
+.us-soilrow b.bad { color: var(--rust, #9a4a42); }
+.us-soilrow.here { border-color: var(--gold, #d3b160); background: rgba(211, 177, 96, .12); }
+.us-soilhead { border: 0; min-height: 0; }
+.us-match { margin-top: 4px; }

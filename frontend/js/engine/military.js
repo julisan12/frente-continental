@@ -4,6 +4,26 @@ import * as C from './constants.js';
 import * as D from './diplomacy.js';
 import * as S from './state.js';
 import * as P from './py.js';
+import * as U from './units.js';
+import { country_defense_mult, attack_logistics_mult } from './provinces.js';
+
+// Ganchos de Tanda 1 (neutros cuando game.ext no existe: la paridad con Python se conserva).
+const _ext = (game) => !!(game && game.ext);
+function _amult(game, d, target) {
+    if (!_ext(game)) return 1.0;
+    let m = 1.0;
+    try { m *= U.div_attack_mult(game, d, target) || 1; } catch (e) { /* neutro */ }
+    try { m *= attack_logistics_mult(game, d, target) || 1; } catch (e) { /* neutro */ }
+    return m;
+}
+function _dmult(game, d, target) {
+    if (!_ext(game)) return 1.0;
+    try { return U.div_defense_mult(game, d, target) || 1; } catch (e) { return 1.0; }
+}
+function _cmult(game, target) {
+    if (!_ext(game)) return 1.0;
+    try { return country_defense_mult(game, target) || 1; } catch (e) { return 1.0; }
+}
 
 function _has(obj, key) {
     return key !== null && key !== undefined && Object.prototype.hasOwnProperty.call(obj, key);
@@ -32,6 +52,7 @@ export function attack_strength(game, divs, target, rng) {
         if (own !== d.owner && !S.allies_of(game, d.owner).includes(own)) {
             p *= C.SUPPLY_PENALTY;  // fuera de suministro
         }
+        p *= _amult(game, d, target);
         total += p;
     }
     const [lo, span] = C.ATTACK_RANGE;
@@ -85,8 +106,9 @@ export function defense_strength(game, divs, target, rng) {
         if (front && d.owner === owner) {
             mult += C.FRONT_BONUS;
         }
-        total += S.division_power(d) * mult;
+        total += S.division_power(d) * mult * _dmult(game, d, target);
     }
+    total *= _cmult(game, target);
     if (owner === target) {
         total *= 1 + C.HOME_DEFENSE_BONUS;  // defensa de la patria: el territorio de origen resiste mejor
     }
@@ -154,6 +176,7 @@ export function capture(game, attacker, target) {
     game.countries[old_owner].stability = Math.max(0.0, game.countries[old_owner].stability - C.CAPTURE_STAB_LOSS);
     S.add_rel(game, attacker, old_owner, -10);
     S.add_log(game, `${_name(game, attacker)} conquista ${_name(game, target)} (antes de ${_name(game, old_owner)}).`, "war");
+    if (_ext(game)) { try { U.on_capture(game, attacker, target, old_owner); } catch (e) { /* botin opcional */ } }
 }
 
 

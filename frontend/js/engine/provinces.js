@@ -4,6 +4,7 @@
 import { PROV, toXY } from '../data/provinces.js';
 import { capture } from './military.js';
 import { at_war, divisions_of, sync_armies, land_adjacency } from './state.js';
+import { on_prov_capture } from './units.js';
 
 export const BUILD = {
   base:      { name: 'Base militar', cost: 60, turns: 2, max: 3, icon: 'base' },
@@ -167,6 +168,7 @@ export function prov_attack(game, ent, pid, rng, free) {
     _loseTroops(game, old, att * 0.15, p.c);
     p.o = ent; p.g = Math.round(att * 0.2 * 10) / 10; p.q = null;
     p.b.base = Math.max(0, p.b.base - 1);
+    try { on_prov_capture(game, ent, pid, old); } catch (e) { /* botin/descontento opcionales */ }
     // pais completo: si cae la capital o todas sus provincias
     const own = game.countries[p.c].owner;
     const rest = provs_of_country(game, p.c).filter((q) => pr[q].o === own);
@@ -261,3 +263,18 @@ export function prov_turn(game, rng, lines) {
     }
   }
 }
+
+// ------------------------------------------------------------------ interfaz Tanda 1 (la rellena el trabajador C)
+/**
+ * Acciones de provincia del jugador no cubiertas por prov_attack/prov_build (p.ej. {action:'prov_recruit', pid, kind},
+ * {action:'prov_line', pid}). Devuelve {ok,msg}|{ok:false,error} o null si la accion no es de este modulo.
+ */
+export function prov_action(game, ent, body) { void game; void ent; void body; return null; }
+/** Suma de niveles de laboratorio en las provincias de la entidad (bono de investigacion). */
+export function prov_lab_levels(game, ent) { void game; void ent; return 0; }
+/** Multiplicador de defensa del territorio (pais) por fortalezas y lineas defensivas de sus provincias (>= 1). */
+export function country_defense_mult(game, target) { void game; void target; return 1.0; }
+/** Multiplicador logistico de ataque de la division d (carreteras/ferrocarril en su territorio de origen) (>= 1). */
+export function attack_logistics_mult(game, d, target) { void game; void d; void target; return 1.0; }
+/** Decisiones pendientes para el carrusel: [{text, kind, screen}]. */
+export function prov_pending(game) { void game; return []; }

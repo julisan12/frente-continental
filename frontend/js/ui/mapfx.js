@@ -1,9 +1,10 @@
 // Mapa pintado (relieve horneado en canvas), provincias funcionales y animaciones de combate/obra.
 import { h, svgEl } from '../util.js';
 import { ICON_PATHS } from '../icons.js';
-import { getState, player, cname, extAction, isAtWar, isAllied, ownerOf } from '../state.js';
-import { TERRAIN, toXY } from '../data/provinces.js';
+import { getState, player, isAtWar, isAllied, ownerOf } from '../state.js';
+import { toXY } from '../data/provinces.js';
 import * as P from '../engine/provinces.js';
+import * as PP from './provpanel.js';
 
 const VW = 500, VH = 535;
 const LS = 'fc.mapfx';
@@ -23,7 +24,7 @@ try { enabled = localStorage.getItem(LS) !== '0'; } catch (e) { /* sin storage *
 let svgR = null, defsR = null, worldR = null, countriesR = [];
 let ocean = null, paint = null, root = null, gOcc = null, gSel = null, gBadge = null, gLbl = null;
 let bakeCache = null; // { land, sea } blob URLs
-let selPid = null, panelEl = null, lastSig = '', zoomCls = '';
+let selPid = null, lastSig = '', zoomCls = '';
 let cellsById = null;
 
 export const isEnabled = () => enabled;
@@ -249,7 +250,7 @@ export function init(svg, defs, world, geo, countries) {
   else setTimeout(() => bake().then(show).catch((e) => console.warn('mapfx bake', e)), 60);
 }
 
-function relColor(o) {
+export function relColor(o) {
   const me = player();
   if (o === me) return '#b8975a';
   if (isAtWar(me, o)) return document.documentElement.dataset.cb === '1' ? '#e8710a' : '#9a4a42';
@@ -343,7 +344,7 @@ export function update(game) {
     }
   }
   prevLv = lv; firstUpdate = false;
-  if (panelEl && panelEl.isConnected) fillPanel();
+  fillPanel();
 }
 
 export function pickProv(cid, wx, wy) {
@@ -358,87 +359,15 @@ export function pickProv(cid, wx, wy) {
 export function selectProv(pid) {
   selPid = pid || null;
   drawSel();
-  if (panelEl) fillPanel();
-}
-
-// ---------- panel de provincia ----------
-export function provPanel() {
-  if (!panelEl) panelEl = h('div', { class: 'prov-panel' });
   fillPanel();
-  return panelEl;
 }
 
-function fillPanel() {
-  const S = getState(), game = S.game;
-  const pr = game && game.ext && game.ext.prov;
-  const gp = selPid && P.prov_geo().byId[selPid];
-  const s = pr && selPid && pr[selPid];
-  if (!gp || !s || (S.selected && gp.c !== S.selected)) { panelEl.replaceChildren(); panelEl.hidden = true; return; }
-  panelEl.hidden = false;
-  const me = player(), mine = s.o === me;
-  const terr = TERRAIN[gp.t] || { name: gp.t, color: '#777' };
-  let def = 0, pow = 0;
-  try { def = P.prov_defense(game, selPid); pow = P.prov_attack_power(game, me); } catch (e) { /* */ }
-  const canAtk = !mine && (P.prov_targets(game, me) || []).includes(selPid);
-
-  const head = h('div', { class: 'pp-head' },
-    iconHTML(s.cap ? 'star' : 'flag', relColor(s.o), 28),
-    h('div', null,
-      h('div', { class: 'pp-name' }, gp.n, s.cap ? h('span', { class: 'pp-tag' }, 'Capital') : null),
-      h('div', { class: 'pp-sub' },
-        h('i', { class: 'pp-terr', style: `background:${terr.color}` }), terr.name, ' · ', cname(s.o), ' · Defensa ', String(def))));
-
-  const res = s.r && P.RES[s.r]
-    ? h('div', { class: 'pp-res' }, iconHTML(P.RES[s.r].icon, RES_COLOR[s.r], 22), h('span', null, P.RES[s.r].name))
-    : h('div', { class: 'pp-res muted' }, 'Sin recurso estratégico');
-
-  const queue = s.q && P.BUILD[s.q.kind]
-    ? h('div', { class: 'pp-queue' }, iconHTML('crane', '#b8975a', 20), `En obra: ${P.BUILD[s.q.kind].name} · ${s.q.turns} turno${s.q.turns === 1 ? '' : 's'}`)
-    : null;
-
-  const builds = h('div', { class: 'pp-builds' });
-  for (const [k, B] of Object.entries(P.BUILD)) {
-    const l = (s.b && s.b[k]) || 0;
-    const needOk = !B.need || B.need.includes(s.r);
-    const cost = P.build_cost(s, k);
-    const why = !mine ? 'No es tuya' : !needOk ? 'Requiere ' + B.need.map((r) => P.RES[r].name).join('/') : l >= B.max ? 'Nivel máximo' : s.q ? 'Obra en curso' : '';
-    const btn = h('button', { class: 'pp-b', disabled: !!why, title: why || `${B.name}: ${cost} · ${B.turns} t` },
-      iconHTML(B.icon, BUILD_COLOR[k], 26),
-      h('span', { class: 'pp-bn' }, B.name),
-      h('span', { class: 'pp-bl' }, `${l}/${B.max}`),
-      h('span', { class: 'pp-bc' }, why ? why : `${cost} · ${B.turns}t`));
-    if (!why) btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      const pid = selPid;
-      const ok = await extAction({ action: 'prov_build', pid, kind: k });
-      if (ok) { recent.set('b' + pid + k, Date.now()); setTimeout(() => recent.delete('b' + pid + k), 8000); FXQ.build(pid, k, false); }
-      else btn.disabled = false;
-    });
-    builds.append(btn);
-  }
-
-  let atk = null;
-  if (canAtk) {
-    const ratio = def > 0 ? pow / def : 9;
-    const cls = ratio >= 1.2 ? 'odds-good' : ratio >= 0.8 ? 'odds-mid' : 'odds-bad';
-    atk = h('button', { class: 'pp-atk' },
-      iconHTML('artillery', '#9a4a42', 26),
-      h('span', null, 'Atacar provincia', h('small', null, ` −${P.ATTACK_COST}`)),
-      h('span', { class: 'pp-odds ' + cls }, `${pow} vs ${def}`));
-    atk.addEventListener('click', async () => {
-      atk.disabled = true;
-      const pid = selPid;
-      FXQ.barrage(pid, me);
-      const ok = await extAction({ action: 'prov_attack', pid });
-      const st = getState().game.ext.prov[pid];
-      if (ok) {
-        recent.set('a' + pid, Date.now()); setTimeout(() => recent.delete('a' + pid), 8000);
-        FXQ.attack(pid, st && st.o === me, me, true);
-      } else atk.disabled = false;
-    });
-  }
-  panelEl.replaceChildren(head, res, queue || '', atk || '', h('div', { class: 'pp-h' }, 'Construir'), builds);
-}
+// ---------- panel de provincia (delegado a provpanel.js) ----------
+export const selectedProv = () => selPid;
+/** Marca una animacion lanzada por el jugador para no repetirla al recibir el estado (key: 'b'+pid+kind | 'a'+pid). */
+export function markRecent(key) { recent.set(key, Date.now()); setTimeout(() => recent.delete(key), 8000); }
+export function provPanel() { return PP.provPanel(); }
+function fillPanel() { try { PP.refresh(); } catch (e) { console.warn('provpanel', e); } }
 
 // ---------- animaciones en canvas ----------
 let cv = null, cx = null, effects = [], raf = 0, dpr = 1;

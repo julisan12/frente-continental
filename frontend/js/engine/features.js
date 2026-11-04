@@ -8,7 +8,12 @@ import {
   make_rng, get_rel, add_rel, at_war, enemies_of, is_alive, entities, country_index,
   land_adjacency, sync_armies, divisions_of, entity_power, territories_of,
 } from './state.js';
-import { init_prov, prov_attack, prov_build, prov_turn } from './provinces.js';
+import { init_prov, prov_attack, prov_build, prov_turn, prov_action, prov_lab_levels, prov_pending } from './provinces.js';
+import * as UNITS from './units.js';
+import * as SUPPLY from './supply.js';
+
+/** Modulos de Tanda 1 con interfaz estandar {init, action, turn, pending}. Orden fijo. */
+export const EXT_MODULES = [UNITS, SUPPLY];
 
 const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
 const r2 = (x) => Math.round(x * 100) / 100;
@@ -269,6 +274,7 @@ export function init_ext(game) {
   }
   if (!e.prices.hist.length) e.prices.hist.push({ turn: game.turn, ...e.prices.cur });
   try { init_prov(game); } catch (er) { /* provincias opcionales */ }
+  for (const m of EXT_MODULES) { try { m.init(game); } catch (er) { /* modulo opcional */ } }
   return game;
 }
 
@@ -336,7 +342,9 @@ export function research_rate(game, cid) {
   const c = game.countries[cid];
   if (!c || !_alive(game, cid)) return 0;
   const lab = game.ext && game.ext.labs[cid] ? game.ext.labs[cid] : 0;
-  const rate = 0.15 + c.development * 0.06 + c.industry / 600 + lab * 0.25;
+  let plab = 0;
+  try { plab = prov_lab_levels(game, cid) || 0; } catch (e) { plab = 0; }
+  const rate = 0.15 + c.development * 0.06 + c.industry / 600 + lab * 0.25 + plab * 0.12;
   return r2(rate);
 }
 
@@ -531,8 +539,18 @@ export function ext_action(game, body) {
       last.result = last.yes > last.no ? 'aprobada' : 'rechazada';
       return ok(`Voto registrado: ${b.vote === 'yes' ? 'a favor' : 'en contra'}.`);
     }
-    default:
+    default: {
+      // Tanda 1: provincias (acciones nuevas) y modulos con interfaz estandar
+      init_prov(game);
+      let r = null;
+      try { r = prov_action(game, me, b); } catch (e2) { r = err(e2 && e2.message ? e2.message : String(e2)); }
+      if (r) return r.ok ? ok(r.msg) : err(r.error);
+      for (const m of EXT_MODULES) {
+        try { r = m.action(game, b); } catch (e2) { r = err(e2 && e2.message ? e2.message : String(e2)); }
+        if (r) return r.ok ? ok(r.msg) : err(r.error);
+      }
       return err('Acción desconocida.');
+    }
   }
 }
 
@@ -759,6 +777,18 @@ export function ext_turn(game) {
     }
   }
   try { prov_turn(game, make_rng(game, 'provai'), lines); } catch (er) { /* provincias opcionales */ }
+  for (const m of EXT_MODULES) {
+    try { m.turn(game, make_rng(game, 'ext-' + (m === UNITS ? 'units' : 'supply')), lines); } catch (er) { console && console.warn && console.warn('ext module turn', er); }
+  }
   void enemies_of; void entities; void is_alive;
   return lines;
+}
+
+/** Decisiones y avisos pendientes del jugador (para el carrusel de noticias): [{text, kind, screen}]. */
+export function ext_pending(game) {
+  const out = [];
+  if (!game || !game.ext) return out;
+  try { out.push(...(prov_pending(game) || [])); } catch (e) { /* opcional */ }
+  for (const m of EXT_MODULES) { try { out.push(...(m.pending(game) || [])); } catch (e) { /* opcional */ } }
+  return out;
 }

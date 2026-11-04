@@ -4,6 +4,7 @@ import * as C from './constants.js';
 import * as D from './diplomacy.js';
 import * as E from './economy.js';
 import * as S from './state.js';
+import { order_check } from './supply.js';
 
 const _has = (obj, k) => obj != null && k != null && Object.prototype.hasOwnProperty.call(obj, k);
 const _get = (obj, k, dflt) => (_has(obj, k) ? obj[k] : dflt);
@@ -223,6 +224,11 @@ export function queue_order(game, ent, otype, target = null, division_id = null,
     division = _check_military(game, ent, otype, target, division_id);
   } else {
     _check_economy(game, ent, otype, params);
+    if (game.ext) { // Tanda 1: las ordenes economicas pueden exigir existencias (metal, combustible...)
+      let why = null;
+      try { why = order_check(game, ent, otype, params); } catch (e) { why = null; }
+      if (why) throw new OrderError(why);
+    }
   }
   const cost = order_cost(otype, params);
   const home = game["countries"][ent];

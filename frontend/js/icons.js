@@ -48,6 +48,24 @@ const P = {
   agri: 'M12 21V9 M12 9c0-3 2-5 5-5 0 3-2 5-5 5z M12 13c0-3-2-5-5-5 0 3 2 5 5 5z M12 17c0-2.5 2-4 4.5-4 0 2.5-2 4-4.5 4z M4 21h16',
   crane: 'M6 21V4h1 M6 4h14 M6 7l3-3 M17 4v5 M15.5 9h3v3h-3z M3 21h8',
   derrick: 'M3 21h18 M7 21l5-18 5 18 M8.5 15h7 M10 9h4 M12 3v2',
+  // Tanda 1: infraestructura, recursos, unidades y noticias
+  lab: 'M9 3h6 M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3 M8 15h8',
+  rail: 'M6 21 10 3 M18 21 14 3 M7 9h10 M6 14h12 M5 18h14',
+  fort: 'M4 21V8h3V5h3v3h4V5h3v3h3v13z M10 21v-5h4v5',
+  trench: 'M3 17c3 0 3-4 6-4s3 4 6 4 3-4 6-4 M3 12c3 0 3-4 6-4s3 4 6 4 3-4 6-4 M4 21h16',
+  truck: 'M3 7h11v9H3z M14 10h4l3 3v3h-7 M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z M17 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+  mountain: 'M3 20 10 7l3 5 2-3 6 11z M8 11l2 2 2-2',
+  anchor: 'M12 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z M12 7v14 M5 13a7 7 0 0 0 14 0 M3 13h4 M17 13h4',
+  wheat: 'M12 21V9 M12 9c-3 0-5-2-5-5 3 0 5 2 5 5z M12 9c3 0 5-2 5-5-3 0-5 2-5 5z M12 14c-3 0-5-2-5-5 3 0 5 2 5 5z M12 14c3 0 5-2 5-5-3 0-5 2-5 5z',
+  box: 'M3 8l9-5 9 5v9l-9 5-9-5z M3 8l9 5 9-5 M12 13v9',
+  ingot: 'M3 17 6 7h12l3 10z M7 12h10',
+  fire: 'M12 3c1 4 5 6 5 11a5 5 0 0 1-10 0c0-3 2-4 2-6 1 1 2 2 2 3 1-2 1-5 1-8z',
+  platoon: 'M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z',
+  tv: 'M3 5h18v12H3z M8 21h8 M12 17v4',
+  shortage: 'M12 3 22 21H2z M12 10v4 M12 17v.01 M4 4l16 16',
+  cart: 'M3 4h3l2 11h11l2-7H7 M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M17 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2z',
+  loot: 'M4 8h16v12H4z M4 8l2-4h12l2 4 M12 8v12 M9 14h6',
+  sword: 'M14 4l6 6-9 9-6-6z M5 13l-2 2 2 2 2 2 2-2 M19 5l-1 1',
 };
 export const ICON_PATHS = P;
 

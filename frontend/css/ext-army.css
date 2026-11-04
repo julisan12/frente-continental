@@ -1,1 +1,40 @@
 /* Tanda 1: estilos de army (ver el modulo JS correspondiente) */
+
+.unit-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: var(--radius, 4px);
+  color: var(--bg, #fff);
+  font-size: 20px;
+}
+
+.unit-card {
+  min-width: 220px;
+  padding: 12px;
+}
+
+.unit-card .btn {
+  min-height: 44px;
+  margin-top: 8px;
+}
+
+.unit-card .unit-icon {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  font-size: 16px;
+}
+
+.item .unit-icon {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  font-size: 18px;
+}

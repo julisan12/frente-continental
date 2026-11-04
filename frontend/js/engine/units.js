@@ -7,17 +7,18 @@
 //   game.divisions[i].kind : 'inf'|'mot'|'arm'|'art'|'mtn'|'mar'|'air'|'esp'  (si falta, se infiere por el nombre)
 //   game.ext.forms[cid]    : [{ id, name, divs:[divisionId...] }]   formaciones (agrupaciones de divisiones)
 //   game.ext.unrest[pid]   : 0..100  descontento en provincias ocupadas (dueno != pais original)
-//   game.ext.loot          : [{ turn, by, from, money, text }]  registro de botin (max 40)
+//   game.ext.loot          : [{ turn, by, from, pid, name, money, res, amt, text }]  registro de botin (max 40); res: food|fuel|goods|metal|null
 //
 // ACCIONES (ext_action -> action(game, body)): devuelve {ok,msg}|{ok:false,error} o null si no es suya.
 //   { action:'unit_recruit', kind, pid? }   recluta/produce una unidad del tipo en la provincia pid (propia) o en la capital
 //   { action:'form_create', name, divs:[ids] } / { action:'form_dissolve', id } / { action:'form_order', id, type, target }
 //
-import { ensure, ok, err, news, r2 } from './extutil.js';
-import { sync_armies, at_war, is_sea_route, next_id } from './state.js';
+import { ensure, ok, err, news, r1, r2 } from './extutil.js';
+import { sync_armies, at_war, is_sea_route, next_id, allies_of } from './state.js';
 import { queue_order, OrderError } from './orders.js';
 import { stock_of } from './supply.js';
-import { prov_geo } from './provinces.js';
+import { prov_geo, prov_yield, prov_targets } from './provinces.js';
+import { army_check } from './dipext.js';
 
 /** Catalogo de tipos de unidad. icon = nombre en icons.js ICON_PATHS; color para el mapa. */
 export const UNIT_TYPES = {
@@ -86,6 +87,8 @@ export function action(game, body) {
         return err(`Requiere la tecnología: ${techNames[ut.tech] || ut.tech}.`);
       }
     }
+    const acheck = army_check(game, me, 'unit_recruit', { troops: ut.troops });
+    if (acheck) return err(acheck);
     // Validar dinero
     if (c.money < ut.cost) return err(`Fondos insuficientes (se necesitan ${ut.cost}).`);
     // Validar recursos si existe stock
@@ -317,7 +320,35 @@ export function pending(game) {
       break;
     }
   }
-  return out.slice(0, 4);
+  // Escasez: sugerir conquistar provincias que produzcan el recurso que falta
+  try {
+    const sup = game.ext.supply && game.ext.supply[me];
+    if (sup && sup.short && prov) {
+      const G = prov_geo();
+      const al = allies_of(game, me);
+      const cand = new Set(prov_targets(game, me));
+      for (const [pid, p] of Object.entries(prov)) {
+        if (p.o !== me) continue;
+        for (const q of G.adj[pid] || []) {
+          const pq = prov[q];
+          if (pq && pq.o !== me && game.countries[pq.o] && !al.includes(pq.o)) cand.add(q);
+        }
+      }
+      let n = 0;
+      for (const res of ['fuel', 'food', 'metal', 'goods']) {
+        if (n >= 2) break;
+        if (!((sup.short[res] || 0) > 0.05)) continue;
+        for (const q of cand) {
+          const pq = prov[q];
+          if (RES_TO_STOCK[pq.r] !== res) continue;
+          out.push({ text: `Escasez de ${RES_LABEL[res]}: ${G.byId[q].n} (${game.countries[pq.o].name}) produce ${P_RES[pq.r]} — conquistarla la aliviaría`, kind: 'supply', screen: 'map' });
+          n++;
+          break;
+        }
+      }
+    }
+  } catch (e) { /* opcional */ }
+  return out.slice(0, 6);
 }
 
 // ------------------------------------------------------------------ ganchos
@@ -390,10 +421,10 @@ export function on_capture(game, attacker, target, old_owner) {
   if (!game.ext) return;
 
   // Botín de recursos (30% del stock del viejo dueño)
+  const loot = {};
   if (game.ext.stock && game.ext.stock[old_owner] && game.ext.stock[attacker]) {
     const oldStock = game.ext.stock[old_owner];
     const newStock = game.ext.stock[attacker];
-    const loot = {};
     for (const res of ['food', 'fuel', 'goods', 'metal']) {
       const amt = Math.floor((oldStock[res] || 0) * 0.3);
       if (amt > 0) {
@@ -405,66 +436,107 @@ export function on_capture(game, attacker, target, old_owner) {
   }
 
   // Registrar botín (dinero ya lo hace military.capture)
+  const cname = game.countries[target].name;
   const money = Math.round(game.countries[target].money * 0.25);
-  const entry = {
-    turn: game.turn,
-    by: attacker,
-    from: old_owner,
-    money,
-    text: `Conquista de ${game.countries[target].name}: +${money} dinero`
-  };
+  const keys = Object.keys(loot).sort((x, y) => loot[y] - loot[x]);
+  const parts = keys.map(k => `+${loot[k]} ${RES_LABEL[k]}`);
+  _push_loot(game, {
+    turn: game.turn, by: attacker, from: old_owner, pid: null, name: cname, money,
+    res: keys[0] || null, amt: keys.length ? loot[keys[0]] : 0,
+    text: `Conquista de ${cname}: +$${_m10(money)} M` + (parts.length ? ' y ' + parts.join(', ') : '')
+  });
+
+  news(game, `${game.countries[attacker].name} saquea ${cname}.`, 'war');
+}
+
+const RES_TO_STOCK = { petroleo: 'fuel', gas: 'fuel', minerales: 'metal', cobre: 'metal', agro: 'food', madera: 'goods' };
+const BUILD_TO_STOCK = [['refineria', 'fuel'], ['mina', 'metal'], ['granja', 'food'], ['fabrica', 'goods']];
+export const RES_LABEL = { food: 'alimentos', fuel: 'combustible', goods: 'bienes', metal: 'metal' };
+const P_RES = { petroleo: 'petróleo', gas: 'gas', minerales: 'minerales', cobre: 'cobre', agro: 'cultivos', madera: 'madera' };
+const _m10 = (m) => Math.round(m * 10);
+
+/** Calculo comun (sin efectos) del botin de la provincia `pid` cuyo dueno actual/anterior es `owner`. */
+function _loot_calc(game, pid, owner) {
+  const p = game.ext && game.ext.prov && game.ext.prov[pid];
+  if (!p) return null;
+  const b = p.b || {};
+  const econ = (b.fabrica || 0) + (b.refineria || 0) + (b.mina || 0) + (b.granja || 0);
+  const fixed = 15 + 8 * econ + 4 * ((b.carretera || 0) + (b.ferrocarril || 0)) + (p.cap ? 20 : 0);
+  const ownerMoney = Math.max(0, (game.countries[owner] && game.countries[owner].money) || 0);
+  const fromOwner = ownerMoney * 0.06;
+  const yld = prov_yield(game, pid);
+  const ostock = (game.ext.stock && game.ext.stock[owner]) || {};
+  let res = RES_TO_STOCK[p.r] || null, amt = 0;
+  if (res) {
+    amt = Math.max(6, 0.25 * (ostock[res] || 0)) + 3 * (yld[res] || 0);
+  } else {
+    let best = 0;
+    for (const [bk, rs] of BUILD_TO_STOCK) if ((b[bk] || 0) > best) { best = b[bk]; res = rs; }
+    if (res) amt = 3 * (yld[res] || 0);
+  }
+  amt = res ? Math.floor(amt) : 0;
+  if (amt <= 0) res = null;
+  return { money: r1(fixed + fromOwner), fixed, fromOwner, res, amt, yield: yld };
+}
+
+/** Vista previa de la recompensa de conquistar `pid` (misma formula; no modifica el estado). */
+export function conquest_preview(game, pid, attacker) {
+  void attacker;
+  const empty = { money: 0, res: null, amt: 0, yield: { money: 0, food: 0, fuel: 0, goods: 0, metal: 0 } };
+  const p = game.ext && game.ext.prov && game.ext.prov[pid];
+  if (!p) return empty;
+  const c = _loot_calc(game, pid, p.o);
+  return c ? { money: c.money, res: c.res, amt: c.amt, yield: c.yield } : empty;
+}
+
+function _push_loot(game, entry) {
+  if (!Array.isArray(game.ext.loot)) game.ext.loot = [];
   game.ext.loot.push(entry);
   if (game.ext.loot.length > 40) game.ext.loot.splice(0, game.ext.loot.length - 40);
-
-  news(game, `${game.countries[attacker].name} saquea ${game.countries[target].name}.`, 'war');
 }
 
 /** Conquista de una provincia (provinces.prov_attack): botin y descontento. */
 export function on_prov_capture(game, attacker, pid, old_owner) {
   if (!game.ext || !game.ext.prov) return;
   const p = game.ext.prov[pid];
-  if (!p) return;
+  const att = game.countries[attacker], old = game.countries[old_owner];
+  if (!p || !att || !old) return;
+  const c = _loot_calc(game, pid, old_owner);
+  if (!c) return;
 
-  // Botín de dinero
-  const buildSum = (p.b.base || 0) + (p.b.fabrica || 0) + (p.b.refineria || 0) + (p.b.mina || 0) + (p.b.granja || 0);
-  const base = 8 + buildSum * 6 + (p.cap ? 10 : 0);
-  const loot = Math.min(base, game.countries[old_owner].money);
-  if (loot > 0) {
-    game.countries[old_owner].money = Math.max(0, game.countries[old_owner].money - loot);
-    game.countries[attacker].money = (game.countries[attacker].money || 0) + loot;
-  }
+  // Dinero: la parte fija la genera la provincia; el 6 % sale del tesoro del dueno (nunca negativo)
+  const taken = Math.min(Math.max(0, old.money || 0), c.fromOwner);
+  old.money = r2(Math.max(0, (old.money || 0) - taken));
+  const money = r1(c.fixed + taken);
+  att.money = r2((att.money || 0) + money);
 
-  // Botín de recursos (20% del stock de la provincia)
-  if (game.ext.stock && game.ext.stock[old_owner] && game.ext.stock[attacker] && p.r) {
-    const resMap = { petroleo: 'fuel', gas: 'fuel', minerales: 'metal', cobre: 'metal', agro: 'food', madera: 'goods' };
-    const res = resMap[p.r];
-    if (res) {
-      const amt = Math.floor((game.ext.stock[old_owner][res] || 0) * 0.2);
-      if (amt > 0) {
-        game.ext.stock[old_owner][res] = Math.max(0, (game.ext.stock[old_owner][res] || 0) - amt);
-        game.ext.stock[attacker][res] = (game.ext.stock[attacker][res] || 0) + amt;
-      }
-    }
-  }
+  // Recurso: requisa; el dueno anterior pierde solo lo que tenia
+  let res = c.res, amt = c.amt;
+  if (res && game.ext.stock) {
+    const ost = stock_of(game, old_owner), ast = stock_of(game, attacker);
+    ost[res] = Math.max(0, (ost[res] || 0) - amt);
+    ast[res] = (ast[res] || 0) + amt;
+  } else { res = null; amt = 0; }
 
-  // Registrar botín
+  p.fx = Object.assign(p.fx || { k: 'win', t: game.turn }, { loot: { money, res, amt } });
+
   let gp = null;
   try { gp = prov_geo().byId[pid]; } catch (e) { /* opcional */ }
-  const entry = {
-    turn: game.turn,
-    by: attacker,
-    from: old_owner,
-    money: loot,
-    text: `${gp ? gp.n : pid}: +${loot} dinero`
-  };
-  game.ext.loot.push(entry);
-  if (game.ext.loot.length > 40) game.ext.loot.splice(0, game.ext.loot.length - 40);
+  const name = gp ? gp.n : pid;
+  const gain = `+$${_m10(money)} M` + (res ? ` y +${amt} ${RES_LABEL[res]}` : '');
+  _push_loot(game, { turn: game.turn, by: attacker, from: old_owner, pid, name, money, res, amt, text: `${name}: ${gain}` });
+  if (old_owner === game.player) {
+    news(game, `${att.name} requisa ${name}: −$${_m10(money)} M` + (res ? ` y −${amt} ${RES_LABEL[res]}` : ''), 'war');
+  } else {
+    news(game, `${att.name} conquista ${name}: ${gain}`, 'war');
+  }
 
   // Inicializar descontento
   let unrest = 35;
   if (p.cap) unrest += 15;
   const hasEsp = (game.divisions || []).some(d => d.owner === attacker && d.location === p.c && d.kind === 'esp');
   if (hasEsp) unrest -= 10;
+  if (!game.ext.unrest) game.ext.unrest = {};
   game.ext.unrest[pid] = Math.max(0, Math.min(100, unrest));
 }
 

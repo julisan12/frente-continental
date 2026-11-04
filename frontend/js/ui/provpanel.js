@@ -1,15 +1,77 @@
 // Panel de acciones de la provincia seleccionada (hoja del mapa): recurso, infraestructura, obras,
 // reclutamiento local, fortificaciones y ataque. Trabajador C (Tanda 1).
 // API usada por mapfx.js/map.js: provPanel() devuelve el contenedor; refresh() lo vuelve a pintar.
-import { h } from '../util.js';
+import { h, fmtMoney, fmtDec } from '../util.js';
 import { getState, player, cname, extAction } from '../state.js';
 import { TERRAIN } from '../data/provinces.js';
 import * as P from '../engine/provinces.js';
 import { iconHTML, relColor, selectedProv, markRecent, animate as FXQ, RES_COLOR, BUILD_COLOR } from './mapfx.js';
-import { UNIT_TYPES } from '../engine/units.js';
+import { UNIT_TYPES, conquest_preview, RES_LABEL } from '../engine/units.js';
+import { army_used, army_cap } from '../engine/dipext.js';
+import * as ART from './art.js';
+import * as FX from './mapfx.js';
 import { TECHS } from '../engine/features.js';
 
 const techName = (id) => { const t = (TECHS || []).find((x) => x.id === id); return t ? t.name : id; };
+
+
+let selKind = null; // edificio seleccionado en Construir/Infraestructura (muestra la tarjeta de detalle)
+let lastPid = null;
+
+const INFRA_FX = {
+  base: 'Habilita reclutar aquí, guarnición y −1,5 descontento por nivel',
+  lab: 'Investigación +0,12 por nivel',
+  carretera: 'Movilidad +3 % por nivel',
+  ferrocarril: 'Movilidad +6 % por nivel',
+  fuerte: 'Defensa +40 % por nivel',
+  linea: 'Defensa +20 % por nivel',
+};
+const YKEYS = [['food', 'alimentos'], ['fuel', 'combustible'], ['goods', 'bienes'], ['metal', 'metal']];
+
+/** Texto de un rendimiento {money, food, fuel, goods, metal}; vacío si no produce nada. */
+function yieldText(y) {
+  const parts = [];
+  if (y.money > 0) parts.push(`+${fmtMoney(y.money)}`);
+  for (const [k, n] of YKEYS) if (y[k] > 0) parts.push(`+${fmtDec(y[k])} ${n}`);
+  return parts.join(' · ');
+}
+
+/** Rendimiento de la provincia si el edificio `kind` subiera un nivel (aplica y restaura el nivel). */
+function yieldAfter(game, pid, p, kind) {
+  const before = p.b[kind] || 0;
+  p.b[kind] = before + 1;
+  try { return P.prov_yield(game, pid); } finally { p.b[kind] = before; }
+}
+
+function resIcon(r) { return FX.RES_ICON ? FX.RES_ICON[r] : P.RES[r].icon; }
+
+/** Etiqueta "+delta" entre rendimientos (solo lo que cambia). */
+function yieldDelta(a, b) {
+  const d = { money: Math.round((b.money - a.money) * 10) / 10 };
+  for (const [k] of YKEYS) d[k] = Math.round((b[k] - a[k]) * 10) / 10;
+  return yieldText(d);
+}
+
+/** Tarjeta de detalle de un edificio: ilustración nivel actual → siguiente, efectos, coste y botón Construir. */
+function detailCard(game, pid, p, k, why, onBuild) {
+  const B = P.BUILD[k]; const l = (p.b || {})[k] || 0;
+  const cost = P.build_cost(p, k);
+  const desc = ART.BUILDING_LEVEL_DESC && ART.BUILDING_LEVEL_DESC[k] && ART.BUILDING_LEVEL_DESC[k][l + 1];
+  let fx = INFRA_FX[k] || '';
+  if (!fx) { const dl = yieldDelta(P.prov_yield(game, pid), yieldAfter(game, pid, p, k)); fx = dl ? 'Producción: ' + dl : ''; }
+  const go = h('button', { class: 'pp-go', disabled: !!why, title: why || '' }, why || 'Construir');
+  if (!why) go.addEventListener('click', () => { go.disabled = true; onBuild(go); });
+  return h('div', { class: 'pp-detail' },
+    h('div', { class: 'pp-dt-title' }, B.name),
+    h('div', { class: 'pp-dt-art' },
+      h('figure', null, ART.artBuilding(k, l, { size: 80, title: `${B.name} nivel ${l}` }), h('figcaption', null, `Nivel ${l}`)),
+      h('span', { class: 'pp-dt-arrow' }, '→'),
+      h('figure', null, ART.artBuilding(k, Math.min(B.max, l + 1), { size: 80, title: `${B.name} nivel ${l + 1}` }), h('figcaption', null, `Nivel ${l + 1}`))),
+    h('div', { class: 'pp-dt-desc small' }, desc || B.name),
+    fx ? h('div', { class: 'pp-dt-fx small' }, fx) : null,
+    h('div', { class: 'pp-dt-cost small muted' }, `Coste ${fmtMoney(cost)} · ${B.turns} turno${B.turns === 1 ? '' : 's'}`),
+    go);
+}
 
 let panelEl = null;
 let currentTab = 'build'; // build, infra, recruit
@@ -29,6 +91,7 @@ export function refresh() {
   const s = pr && selPid && pr[selPid];
   if (!gp || !s || (S.selected && gp.c !== S.selected)) { panelEl.replaceChildren(); panelEl.hidden = true; return; }
   panelEl.hidden = false;
+  if (lastPid !== selPid) { lastPid = selPid; selKind = null; }
   const me = player(), mine = s.o === me;
   const terr = TERRAIN[gp.t] || { name: gp.t, color: '#777' };
   let def = 0, pow = 0;
@@ -54,10 +117,14 @@ export function refresh() {
     head.append(unrestBar);
   }
 
-  // Recurso
+  // Recurso y producción
+  const yld = P.prov_yield(game, selPid);
+  const prodTxt = yieldText(yld);
   const res = s.r && P.RES[s.r]
-    ? h('div', { class: 'pp-res' }, iconHTML(P.RES[s.r].icon, RES_COLOR[s.r], 22), h('span', null, P.RES[s.r].name))
-    : h('div', { class: 'pp-res muted' }, 'Sin recurso estratégico');
+    ? h('div', { class: 'pp-res' }, ART.artResource(s.r, { size: 40, title: P.RES[s.r].name }),
+        h('div', { class: 'pp-res-info' }, h('span', null, P.RES[s.r].name),
+          h('small', { class: 'pp-prod' }, prodTxt ? 'Produce: ' + prodTxt : 'Sin producción')))
+    : h('div', { class: 'pp-res muted' }, 'Sin recurso estratégico' + (prodTxt ? ' · Produce: ' + prodTxt : ''));
 
   // Cola de obra
   const queue = s.q && P.BUILD[s.q.kind]
@@ -89,62 +156,43 @@ export function refresh() {
     h('button', { class: currentTab === 'recruit' ? 'active' : '', onclick: () => { currentTab = 'recruit'; refresh(); } }, 'Reclutar'));
 
   // Contenido de las pestañas
-  let tabContent = null;
-  if (currentTab === 'build') {
-    const baseBuilds = ['base', 'fabrica', 'refineria', 'mina', 'granja'];
-    const btns = [];
-    for (const k of baseBuilds) {
+  const buildTab = (kinds) => {
+    const btns = []; let detail = null;
+    for (const k of kinds) {
       const B = P.BUILD[k]; const l = b[k] || 0;
       const needOk = !B.need || B.need.includes(s.r);
       const reqOk = !B.reqFn || B.reqFn(s);
-      const reqOk2 = !B.req || Object.entries(B.req).every(([rk, rv]) => (b[rk] || 0) >= rv);
-      const cost = P.build_cost(s, k);
-      const why = !mine ? 'No es tuya' : !needOk ? 'Requiere ' + B.need.map((r) => P.RES[r].name).join('/') : !reqOk ? 'Requiere fábrica o capital' : !reqOk2 ? 'Requisitos no cumplidos' : l >= B.max ? 'Nivel máximo' : s.q ? 'Obra en curso' : '';
-      const btn = h('button', { class: 'pp-b', disabled: !!why, title: why || `${B.name}: ${cost} · ${B.turns} t` },
-        iconHTML(B.icon, BUILD_COLOR[k] || '#777', 26),
-        h('span', { class: 'pp-bn' }, B.name),
-        h('span', { class: 'pp-bl' }, `${l}/${B.max}`),
-        h('span', { class: 'pp-bc' }, why ? why : `${cost} · ${B.turns}t`));
-      if (!why) btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        const pid = selPid;
-        const ok = await extAction({ action: 'prov_build', pid, kind: k });
-        if (ok) { markRecent('b' + pid + k); FXQ.build(pid, k, false); }
-        else btn.disabled = false;
-      });
-      btns.push(btn);
-    }
-    tabContent = h('div', { class: 'pp-builds' }, ...btns);
-  } else if (currentTab === 'infra') {
-    const infraBuilds = ['lab', 'carretera', 'ferrocarril', 'fuerte', 'linea'];
-    const btns = [];
-    for (const k of infraBuilds) {
-      const B = P.BUILD[k]; const l = b[k] || 0;
-      const needOk = !B.need || B.need.includes(s.r);
-      const reqOk = !B.reqFn || B.reqFn(s);
-      const reqOk2 = !B.req || Object.entries(B.req).every(([rk, rv]) => (b[rk] || 0) >= rv);
       const cost = P.build_cost(s, k);
       let why = !mine ? 'No es tuya' : !needOk ? 'Requiere ' + B.need.map((r) => P.RES[r].name).join('/') : l >= B.max ? 'Nivel máximo' : s.q ? 'Obra en curso' : '';
       if (!why && !reqOk) why = 'Requiere fábrica o capital';
-      if (!why && !reqOk2) {
-        const missing = Object.entries(B.req || {}).find(([rk, rv]) => (b[rk] || 0) < rv);
+      if (!why && B.req) {
+        const missing = Object.entries(B.req).find(([rk, rv]) => (b[rk] || 0) < rv);
         if (missing) why = `Requiere ${P.BUILD[missing[0]].name} nv ${missing[1]}`;
       }
-      const btn = h('button', { class: 'pp-b', disabled: !!why, title: why || `${B.name}: ${cost} · ${B.turns} t` },
-        iconHTML(B.icon, BUILD_COLOR[k] || '#7a8a5a', 26),
+      const sel = selKind === k && !why;
+      const btn = h('button', { class: 'pp-b' + (sel ? ' sel' : ''), disabled: !!why, title: why || `${B.name}: ${fmtMoney(cost)} · ${B.turns} t` },
+        ART.artBuilding(k, l, { size: 56, title: B.name }),
         h('span', { class: 'pp-bn' }, B.name),
         h('span', { class: 'pp-bl' }, `${l}/${B.max}`),
-        h('span', { class: 'pp-bc' }, why ? why : `${cost} · ${B.turns}t`));
-      if (!why) btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        const pid = selPid;
-        const ok = await extAction({ action: 'prov_build', pid, kind: k });
-        if (ok) { markRecent('b' + pid + k); FXQ.build(pid, k, false); }
-        else btn.disabled = false;
-      });
+        h('span', { class: 'pp-bc' }, why ? why : `${fmtMoney(cost)} · ${B.turns}t`));
+      if (!why) btn.addEventListener('click', () => { selKind = selKind === k ? null : k; refresh(); });
+      if (sel) {
+        detail = detailCard(game, selPid, s, k, '', async (go) => {
+          const pid = selPid;
+          const ok = await extAction({ action: 'prov_build', pid, kind: k });
+          if (ok) { selKind = null; markRecent('b' + pid + k); FXQ.build(pid, k, false); }
+          else go.disabled = false;
+        });
+      }
       btns.push(btn);
     }
-    tabContent = h('div', { class: 'pp-builds' }, ...btns);
+    return h('div', { class: 'pp-tabbody' }, detail || '', h('div', { class: 'pp-builds' }, ...btns));
+  };
+  let tabContent = null;
+  if (currentTab === 'build') {
+    tabContent = buildTab(['base', 'fabrica', 'refineria', 'mina', 'granja']);
+  } else if (currentTab === 'infra') {
+    tabContent = buildTab(['lab', 'carretera', 'ferrocarril', 'fuerte', 'linea']);
   } else if (currentTab === 'recruit') {
     const canRecruit = mine && (s.cap || (b.base || 0) >= 1);
     if (!canRecruit) {
@@ -159,7 +207,7 @@ export function refresh() {
         });
         const why = !hasTech ? `Requiere ${techName(U.tech)}` : !hasStock ? 'Recursos insuficientes' : '';
         const btn = h('button', { class: 'pp-b pp-r', 'data-kind': kind, disabled: !!why, title: why || U.desc },
-          iconHTML(U.icon, U.color, 26),
+          ART.artUnit(kind, { size: 48, title: U.name }),
           h('span', { class: 'pp-bn' }, U.name),
           h('span', { class: 'pp-bl' }, `${U.troops}T ${U.tanks}B ${U.planes}A`),
           h('span', { class: 'pp-bc' }, why ? why : `${U.cost}`));
@@ -172,7 +220,9 @@ export function refresh() {
         });
         btns.push(btn);
       }
-      tabContent = h('div', { class: 'pp-builds' }, ...btns);
+      let capTxt = '';
+      try { capTxt = `Ejército ${fmtDec(army_used(game, me))} / ${fmtDec(army_cap(game, me))} k`; } catch (e) { /* opcional */ }
+      tabContent = h('div', { class: 'pp-tabbody' }, capTxt ? h('div', { class: 'pp-cap small muted' }, capTxt) : '', h('div', { class: 'pp-builds' }, ...btns));
     }
   }
 
@@ -196,5 +246,30 @@ export function refresh() {
     });
   }
 
-  panelEl.replaceChildren(head, res, queue || '', infraSec || '', atk || '', tabs, tabContent);
+  // Botín estimado (bajo el botón de atacar)
+  let atkBox = atk;
+  if (atk) {
+    let pv = null; try { pv = conquest_preview(game, selPid, me); } catch (e) { /* opcional */ }
+    const sup = game.ext.supply && game.ext.supply[me];
+    const lootBox = h('div', { class: 'pp-loot' });
+    if (pv) {
+      lootBox.append(h('div', { class: 'pp-loot-row' }, ART.artAction ? ART.artAction('loot', { size: 28, title: 'Botín' }) : '',
+        h('span', null, `Botín estimado: +${fmtMoney(pv.money)}`,
+          pv.res ? h('span', { class: 'pp-loot-res' }, ' · ', iconHTML(resIcon(s.r) || 'crate', RES_COLOR[s.r] || '#b8975a', 16), ` +${pv.amt} ${RES_LABEL[pv.res]}`) : '')));
+      const fut = yieldText(pv.yield);
+      if (fut) lootBox.append(h('div', { class: 'pp-loot-fut small muted' }, 'Luego producirá para ti: ' + fut));
+      if (pv.res && sup && sup.short && sup.short[pv.res] > 0.05)
+        lootBox.append(h('div', { class: 'pp-loot-warn small' }, `¡Alivia tu escasez de ${RES_LABEL[pv.res]}!`));
+    }
+    atkBox = h('div', { class: 'pp-atkwrap' }, atk, lootBox);
+  }
+
+  // Historial de botín (últimas 3 entradas del jugador)
+  const mineLoot = ((game.ext && game.ext.loot) || []).filter((e) => e.by === me).slice(-3).reverse();
+  const hist = mineLoot.length
+    ? h('details', { class: 'pp-hist' }, h('summary', null, 'Botín reciente'),
+        ...mineLoot.map((e) => h('div', { class: 'pp-hist-row small' }, h('b', null, `T${e.turn}`), ' ', e.text)))
+    : null;
+
+  panelEl.replaceChildren(head, res, queue || '', infraSec || '', atkBox || '', tabs, tabContent, hist || '');
 }

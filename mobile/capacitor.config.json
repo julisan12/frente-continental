@@ -1,0 +1,17 @@
+{
+  "appId": "com.frentecontinental.juego",
+  "appName": "Frente Continental",
+  "webDir": "../frontend",
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#151711"
+    }
+  }
+}

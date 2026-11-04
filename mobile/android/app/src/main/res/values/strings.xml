@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Frente Continental</string>
+    <string name="title_activity_main">Frente Continental</string>
+    <string name="package_name">com.frentecontinental.juego</string>
+    <string name="custom_url_scheme">com.frentecontinental.juego</string>
+</resources>

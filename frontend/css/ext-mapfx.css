@@ -1,0 +1,57 @@
+/* Mapa pintado: relieve horneado, provincias, insignias y panel */
+.fx-off .fxl { display: none; }
+.fxl, .fx-root, .fx-canvas { pointer-events: none; }
+.fx-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+.fx-ocean, .fx-paint { image-rendering: auto; }
+
+/* Ocupación y selección */
+.fx-occp { opacity: .75; }
+.fx-selfill { fill: rgba(246,231,176,.22); }
+.fx-seledge { fill: none; stroke: #f6e7b0; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+
+/* Insignias y etiquetas según zoom */
+.fx-badges, .fx-plbl { display: none; }
+.fx-root.z1 .fx-badges { display: inline; }
+.fx-root.z2 .fx-plbl { display: inline; }
+.fx-sc { transform: scale(var(--ik, 1)); transform-box: fill-box; transform-origin: center; }
+.fx-ico circle { stroke: #f1e3b8; stroke-width: .5; }
+.fx-lv { font: 700 3px/1 'Inter', system-ui, sans-serif; fill: #fff; text-anchor: middle; dominant-baseline: central; }
+.fx-pn { font: 600 3.2px/1 Georgia, 'Times New Roman', serif; text-transform: uppercase; letter-spacing: .08em;
+  fill: #2a2418; stroke: rgba(246,236,208,.85); stroke-width: .7px; paint-order: stroke; text-anchor: middle; }
+.fx-pn.cap { font-weight: 800; fill: #1a140a; }
+
+/* Insignias HTML */
+.fx-badge { display: inline-flex; align-items: center; justify-content: center; border-radius: 50%;
+  background: var(--c, #6b7f4a); border: 1.5px solid #f1e3b8; color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.4);
+  flex: 0 0 auto; vertical-align: middle; }
+.fx-badge svg { width: 62%; height: 62%; fill: currentColor; stroke: currentColor; }
+
+/* Panel de provincia */
+.prov-panel { margin-top: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(9,18,32,.6); color: var(--cream); font-size: 12px; }
+.prov-panel:empty { display: none; }
+.pp-head { display: flex; align-items: center; gap: 8px; }
+.pp-name { font-family: var(--font-head, Georgia, serif); font-size: 15px; text-transform: uppercase; letter-spacing: .06em; }
+.pp-tag { font-size: 10px; padding: 2px 6px; border-radius: 10px; background: var(--btn-a, #24324a); color: var(--muted); }
+.pp-sub { display: flex; gap: 10px; align-items: center; color: var(--muted); margin: 4px 0 6px; flex-wrap: wrap; }
+.pp-terr i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.pp-res { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.pp-res > span { display: inline-flex; align-items: center; gap: 4px; }
+.prov-panel .muted { color: var(--muted); }
+.pp-h { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 8px 0 4px; }
+.pp-queue { display: flex; flex-direction: column; gap: 3px; }
+.pp-builds { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+.pp-b { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px; border: 1px solid var(--line);
+  border-radius: 8px; background: rgba(255,255,255,.03); color: var(--cream); min-height: 64px; }
+.pp-b:disabled { opacity: .45; }
+.pp-b:not(:disabled):active { transform: scale(.97); }
+.pp-bn { font-size: 11px; font-weight: 600; }
+.pp-bl { font-size: 10px; color: var(--muted); }
+.pp-bc { font-size: 10px; color: var(--amber, #d3b160); }
+.pp-atk { width: 100%; margin-top: 8px; padding: 9px; border-radius: 8px; border: 1px solid #9a4a42; background: #6d2f29; color: #fff; font-weight: 700; }
+.pp-atk small { display: block; font-weight: 400; opacity: .8; }
+.pp-atk:disabled { opacity: .45; }
+.pp-odds { font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-canvas { display: none; }
+}

@@ -1,0 +1,29 @@
+/* Extensiones de Mas / chrome / tutorial */
+.ticker{display:block;width:100%;margin-top:2px;padding:2px 8px;background:transparent;border:0;border-top:1px dashed rgba(184,151,90,.25);color:var(--muted);font-size:11.5px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-serif)}
+.ticker b{color:var(--brass);font-weight:600;margin-right:4px}
+.ticker.war b{color:var(--bad)} .ticker.eco b{color:var(--gold)} .ticker.dip b{color:var(--green-l)}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+button.pill{background:var(--panel);cursor:pointer;min-height:28px}
+button.pill[aria-pressed="true"]{border-color:var(--gold);background:#3a3320;color:var(--gold)}
+.pill.ok{background:rgba(111,164,103,.25);border-color:var(--ok)}
+.pill.no{background:rgba(192,100,90,.2);border-color:var(--bad)}
+.chart{width:100%;height:auto;display:block;background:var(--bg-deep);border:1px solid var(--line);border-radius:8px}
+.chart .ax{stroke:var(--line);stroke-width:1} .chart .tx{fill:var(--muted);font-size:9px;font-family:var(--font-ui)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.rtable{width:100%;border-collapse:collapse;font-size:12.5px}
+.rtable td,.rtable th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left}
+.rtable td:last-child,.rtable th:last-child{text-align:right}
+.rtable tr.me td{color:var(--gold);font-weight:700}
+.ach{opacity:1}.ach.locked{opacity:.5}
+.tip{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.tip .grow{flex:1}
+.diary{width:100%;min-height:140px;resize:vertical;background:var(--bg-deep);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font-family:var(--font-serif);font-size:13.5px}
+.tut-dots{display:flex;gap:6px;justify-content:center;margin:10px 0}
+.tut-dot{width:8px;height:8px;border-radius:50%;background:var(--line)} .tut-dot.on{background:var(--gold)}
+.tut h2{margin-bottom:6px}
+:root[data-cb="1"] .bar>i{background:linear-gradient(90deg,#0072b2,#56b4e9)}
+:root[data-cb="1"] .bar.bad>i{background:linear-gradient(90deg,#b35900,#e69f00)}
+:root[data-cb="1"] .bar.warn>i{background:linear-gradient(90deg,#8a7a00,#f0e442)}
+:root[data-cb="1"] .ticker.war b,:root[data-cb="1"] .pill.no{color:#e69f00;border-color:#e69f00}
+:root[data-cb="1"] .pill.ok{border-color:#56b4e9;background:rgba(86,180,233,.2)}

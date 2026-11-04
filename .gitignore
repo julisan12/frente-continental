@@ -1,0 +1,38 @@
+# Dependencias
+node_modules/
+
+# Builds / binarios (los APK se publican como artefactos de CI)
+*.apk
+*.aab
+build/
+.gradle/
+mobile/android/local.properties
+
+# Copia generada por `npx cap sync` (se regenera en cada build)
+mobile/android/app/src/main/assets/public/
+mobile/android/app/src/main/assets/capacitor.config.json
+mobile/android/app/src/main/assets/capacitor.plugins.json
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Partidas guardadas locales
+backend/saves/*.json
+
+# Secretos / firmas
+.env
+.env.*
+*.keystore
+*.jks
+key.properties
+
+# Editor / SO
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+.claude/settings.local.json

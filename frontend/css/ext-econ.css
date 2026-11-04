@@ -1,0 +1,7 @@
+/* Pestañas extendidas: política, investigación, bloques, tratados, espionaje */
+.spark{width:96px;height:26px;flex:none;color:var(--gold);overflow:visible}
+.spark polyline{fill:none;stroke:currentColor;stroke-width:1.5;vector-effect:non-scaling-stroke}
+.optrow{display:flex;flex-wrap:wrap;gap:6px}
+.optrow .btn{flex:1 1 30%}
+.item.locked{opacity:.55}
+.item.stack .row.wrapr{flex-wrap:wrap}

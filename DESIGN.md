@@ -82,6 +82,31 @@ del país en proporciones 60/40 (tropas) y 30/70 (vehículos).
   (No hay derrota por puntuación al límite: la industria de la IA crece sin tope y haría la derrota automática.)
 - Resolución de turno determinista con `seed` (PortableRandom, sfc32 + cyrb128: idéntico en Python y JS).
 
+## Mapa y provincias (Tanda 2)
+- **Variantes de mapa** (`data/provinces.js` → `VARIANTS`): `latam` (24 países, viewBox `0 0 500 535`) y `sur` (12 países de Sudamérica, viewBox `200 105 290 410`). `game.variant` guarda la elección (ausente = `latam`). Se elige al iniciar partida; el selector recuerda la última en `localStorage` (`fc.variant`). El modo servidor (Python) solo ofrece `latam`.
+- `engine/state.js` filtra los países con `use_variant(variant)`: `load_countries()`, `country_index()`, adyacencias y `victory_target()` (6 en `sur`, 12 en `latam`) solo ven los de la variante. `localapi` llama a `use_variant` + `use_game_geo` en cada operación sobre una partida (`activate`). `GET /map?variant=sur`.
+- **Densidad de provincias** (`game.ext.geo.density`): `1` = lista original de departamentos (404 provincias; partidas guardadas de la Tanda 1, sin `ext.geo`, se siguen jugando igual) y `2` = subdividida (partidas nuevas, ≈640 en `latam` y ≈433 en `sur`). `init_prov` fija `ext.geo = {density: 2}` solo al crear las provincias desde cero.
+- `subdivide(cid, filas, path)` es determinista: objetivo `clamp(round(2n), 12, 48)` limitado a `área/16`; parte las celdas Voronoi (muestreo en rejilla dentro del polígono del país) más grandes en 2 o 3 por su eje principal, con nombres «X Norte/Sur» o «X Occidental/Oriental» (3 partes: Centro). Cada provincia nueva lleva `parent` y `sub`. La capital es la parte más cercana al centroide original.
+- Adyacencia de provincias con densidad 2: 4 vecinas más cercanas (radio 30 propio / 24 entre países) y al menos un enlace por frontera terrestre.
+
+## Diplomacia agresiva, conquista e interfaz (Tanda 2)
+- **Ataque sorpresa** (`engine/dipext.js`, acción `surprise_attack {target, divs?}`): se resuelve al instante con `military.resolve_assault`
+  y bono ×1,3 (`game.ext.surprise`, leído por `military._amult`). Coste 30; una vez por turno; además de la declaración de guerra
+  (−3 estabilidad, −40 relación): −6 estabilidad, −25 de relación con todos los demás países vivos, −40 con aliados/socios de bloque
+  del atacado, −20 extra con la víctima, pactos ext con la víctima cancelados y expulsión del bloque compartido. Registro en `game.ext.dip.log`.
+- **Presión diplomática** (`provoke {target, kind}`): incidente fronterizo (15, −12 rel, −1 estab), expulsar embajador (25, −25 rel, −2 estab,
+  −5 con sus aliados, cancela el pacto de no agresión con −6 extra), campaña hostil (20, −18 rel, −2 estab al objetivo). Una por país y turno.
+- **Capacidad del ejército** (`army_cap`): (80 + 10×población(M) + 15×niveles de base militar + 10×fortalezas) × ley de reclutamiento
+  (voluntario 1,0 / limitado 1,2 / obligatorio 1,5) × 1,15 con «Movilización de reservas». `orders.queue_order` y `units.unit_recruit` la
+  comprueban (`army_check`). Mercado: 40 unidades por turno (+3 por cada 10 de infraestructura); reclutar exige 1 bien.
+- **Recompensas de conquista** (`units.on_prov_capture`): dinero = 15 + 8×edificios económicos + 4×(carretera+ferrocarril) + 20 si capital
+  + 6 % del tesoro del dueño (limitado a lo que tenga); recurso = máx(6, 25 % de las reservas del dueño) + 3 turnos del rendimiento de la
+  provincia (o 3 turnos del edificio productivo principal). `game.ext.loot` guarda `{turn, by, from, pid, name, money, res, amt, text}`;
+  `prov.fx.loot` alimenta la animación del mapa. `conquest_preview` da la vista previa sin efectos.
+- **Interfaz**: hoja del mapa con estados compacta/media/completa (`--sheet-h` desplaza controles), selector de modo plegado, cajón lateral
+  (`ui/drawer.js`), barra inferior de altura fija y tiras de pestañas (`ui/tabs.js`) fijas en la parte superior de cada pantalla.
+  Ilustraciones SVG en `ui/art.js` (edificios por nivel, unidades, acciones, recursos); ficha de unidad en `ui/unitsheet.js`.
+
 ## API REST (prefijo /api)
 - `GET  /api/health` → {ok:true, version}
 - `GET  /api/map` → {viewBox:"0 0 500 535", countries:[{id,name,color,path,neighbors,sea,power,alignment,resources}]}

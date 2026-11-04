@@ -95,4 +95,31 @@ Tanda 1 (dinámica y profundidad; módulos `engine/provinces.js`, `engine/units.
 - **Carrusel de noticias** tipo noticiero en la cabecera: decisiones pendientes y últimas noticias, con acceso directo a la
   pantalla correspondiente.
 
+Tanda 2 (mapa, conquista, diplomacia agresiva e interfaz; módulos `engine/dipext.js`, `ui/art.js`, `ui/unitsheet.js`, `ui/drawer.js`, `ui/tabs.js`):
+
+- **Mapa seleccionable al iniciar partida**: «Latinoamérica» (24 países) o «América del Sur» (12 países, viewBox centrado en
+  Sudamérica, victoria con 6 países). En ambos hay **más provincias por país** (≈640 en Latinoamérica frente a 404; ≈433 en
+  América del Sur frente a 221): los departamentos grandes se subdividen de forma determinista («Santa Cruz Norte/Sur»,
+  «Cochabamba Oriental/Occidental»). Las partidas guardadas anteriores conservan su geometría original.
+- **Ataque sorpresa**: ataque inmediato a un vecino sin declaración previa, con bono ×1,3, −9 de estabilidad y una fuerte
+  penalización de reputación (−25 de relación con todos los demás países, −40 con los aliados y socios de bloque del atacado,
+  −60 con la víctima); expulsión inmediata del bloque compartido.
+- **Presión diplomática**: empeorar relaciones a propósito (incidente fronterizo −12, expulsar embajador −25, campaña hostil −18)
+  para justificar guerras o aislar a un rival.
+- **Capacidad del ejército** explícita y ampliable (80 + 10 por millón de habitantes + bases militares y fortalezas, × ley de
+  reclutamiento y tecnología de reservas), visible en Ejército; frenos de suministro relajados (mercado 20→40 unidades por turno,
+  reclutar exige 1 bien en lugar de 2).
+- **Recompensas de conquista**: cada provincia conquistada da dinero (parte fija por edificios y capital + 6 % del tesoro del
+  dueño) y, si tiene recurso, una requisa (25 % de sus reservas + 3 turnos de producción); la provincia pasa a producir para
+  el conquistador. Vista previa del botín en el panel de provincia, registro de botín, textos flotantes en el mapa y avisos en el
+  carrusel cuando una provincia vecina aliviaría una escasez.
+- **Mapa**: iconos de recursos rediseñados (insignias hexagonales), carreteras, ferrocarriles, fortalezas y líneas defensivas
+  dibujados sobre el mapa, animación de marcha de las unidades entre territorios y texto de botín al conquistar.
+- **Ilustraciones dibujadas (SVG)** para edificios (4 niveles cada uno: el dibujo crece con el nivel), unidades, acciones y
+  recursos; panel de provincia con tarjeta de detalle «nivel actual → siguiente»; **ficha de unidad** con imagen, estadísticas,
+  tabla de terreno y bonos activos; **estimador de batalla** con tipo de unidad, terreno, logística y fortificaciones.
+- **Interfaz**: hoja inferior del mapa compacta (estados compacta/media/completa, arrastrable, el mapa sigue siendo
+  interactivo), selector de modo de mapa plegado, cajón lateral de ajustes rápidos, barra inferior fija y tiras de pestañas
+  que no se mueven al cambiar de pestaña.
+
 Estos sistemas funcionan solo en modo local (sin conexión). Con el servidor Python se muestra un aviso de que no están disponibles.

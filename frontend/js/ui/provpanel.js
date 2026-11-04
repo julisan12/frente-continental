@@ -21,6 +21,7 @@ let selKind = null; // edificio seleccionado (muestra la tarjeta de detalle)
 let selUnit = null; // unidad seleccionada en Reclutar
 let lastPid = null;
 let currentTab = 'eco'; // eco | mil | infra | recruit
+let lastScrollKey = ''; // para llevar la tarjeta de detalle a la vista solo al cambiar la selección
 
 /** Modificadores del suelo, en texto, por grupo (ver SOIL_MODS de roster.js). */
 const SOIL_TEXT = {
@@ -320,4 +321,12 @@ export function refresh() {
     : null;
 
   panelEl.replaceChildren(head, res, queue || '', infraSec || '', atkBox || '', tabs, tabContent, hist || '');
+  // Con la hoja a media altura la ilustración quedaba fuera de pantalla: al elegir edificio/unidad se lleva la tarjeta a la vista.
+  const key = selPid + '|' + currentTab + '|' + (currentTab === 'recruit' ? selUnit : selKind);
+  const sel = currentTab === 'recruit' ? selUnit : selKind;
+  if (sel && key !== lastScrollKey) {
+    const dc = panelEl.querySelector('.pp-detail');
+    if (dc) requestAnimationFrame(() => { try { dc.scrollIntoView({ block: 'start', behavior: 'auto' }); } catch (e) { /* */ } });
+  }
+  lastScrollKey = sel ? key : '';
 }

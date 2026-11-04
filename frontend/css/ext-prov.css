@@ -316,6 +316,10 @@
 .pp-dt-art figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .pp-dt-art figcaption { font-size: 11px; color: var(--muted); }
 .pp-dt-art .art { max-width: 28vw; height: auto; }
+/* Ilustración compacta: cabe junto al título aun con la hoja a media altura */
+.pp-dt-art { gap: 8px; }
+.pp-dt-art .art { width: 64px; height: 64px; max-width: 64px; }
+.pp-detail { scroll-margin-top: 0; }
 .pp-dt-arrow { font-size: 22px; color: var(--brass); }
 .pp-dt-fx { color: var(--brass); font-weight: 600; }
 .pp-go {

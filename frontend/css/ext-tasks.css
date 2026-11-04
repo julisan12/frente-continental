@@ -32,3 +32,7 @@
 .stats.res .stat .v{font-size:13px;overflow:visible}
 .stats.res .stat.warn .v,.stats.res .stat.warn .ico{color:var(--rust)}
 @media(max-width:420px){.stats.res{grid-template-columns:repeat(4,minmax(0,1fr))}.stats.res .stat .v{font-size:12.5px}}
+
+/* «Por mi cuenta» no cabe en una línea a 390 px: dos líneas compactas */
+.nav button .nl.nl2{white-space:normal;text-overflow:clip;font-size:9px;line-height:1;text-align:center;max-width:52px;overflow-wrap:normal}
+.nav button:has(.nl2) .ico{width:19px;height:19px}

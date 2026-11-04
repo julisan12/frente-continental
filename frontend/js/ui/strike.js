@@ -8,6 +8,7 @@ import { prov_geo } from '../engine/provinces.js';
 import { ROSTER } from '../engine/roster.js';
 import * as AERO from '../engine/aero.js';
 import { artUnit } from './art.js';
+import { confirmModal } from './modals.js';
 
 const pname = (pid) => { const g = prov_geo().byId[pid]; return g ? g.n : pid; };
 const game = () => getState().game;
@@ -39,18 +40,31 @@ export function strikeButtons(pid) {
   const me = player();
   if (pr[pid].o === me) return null;
   const btns = [];
+  const done = (g.ext.techs && g.ext.techs[me] && g.ext.techs[me].done) || [];
+  const WH = { nuc: 'nuclear', bio: 'bioquímica', exp: 'explosiva' };
   for (const d of mineDivs()) {
     const kind = AERO.kind_of(d); const sp = ROSTER[kind];
     if (!sp || !sp.range || sp.static || kind === 'dexp' || kind === 'dsen') continue;
     let targets; try { targets = AERO.strike_targets(g, d); } catch (e) { continue; }
     if (!targets.includes(pid)) continue;
     const st = stateLabel(d);
-    const est = AERO.strike_estimate(g, d, pid);
-    const b = h('button', { class: 'btn strike-btn' + (st ? ' strike-wait' : ''), 'data-div': d.id, disabled: !!st, title: sp.desc },
-      unitIcon(kind),
-      h('span', { class: 'strike-txt' }, h('b', {}, verbFor(kind, d)), h('small', {}, st ? `${st} · daño ~${est}` : `daño ~${est}${sp.single ? ' · un solo uso' : ''}`)));
-    if (!st) b.addEventListener('click', async () => { b.disabled = true; const okk = await extAction({ action: 'strike', div: d.id, pid }); if (!okk) b.disabled = false; });
-    btns.push(b);
+    // el bombardero pesado elige ojiva: un botón por cada ojiva investigada
+    const heads = kind === 'bpes' ? ['nuc', 'bio', 'exp'].filter((o) => done.includes('oj_' + o)) : [];
+    const variants = heads.length ? heads : [null];
+    for (const oj of variants) {
+      const est = AERO.strike_estimate(g, d, pid, oj);
+      const label = oj ? `${verbFor(kind, d)} · ojiva ${WH[oj]}` : verbFor(kind, d);
+      const b = h('button', { class: 'btn strike-btn' + (st ? ' strike-wait' : ''), 'data-div': d.id, 'data-oj': oj || '', disabled: !!st, title: sp.desc },
+        unitIcon(kind),
+        h('span', { class: 'strike-txt' }, h('b', {}, label), h('small', {}, st ? `${st} · daño ~${est}` : `daño ~${est}${sp.single ? ' · un solo uso' : ''}${oj === 'nuc' ? ' · condena internacional' : oj === 'bio' ? ' · descontento' : ''}`)));
+      if (!st) b.addEventListener('click', async () => {
+        if (oj === 'nuc' && !(await confirmModal({ title: 'Ojiva nuclear', text: 'Todos los países te condenarán (−30 de relaciones con cada uno). ¿Lanzar el ataque?', okText: 'Lanzar', danger: true }))) return;
+        b.disabled = true;
+        const okk = await extAction({ action: 'strike', div: d.id, pid, oj: oj || undefined });
+        if (!okk) b.disabled = false;
+      });
+      btns.push(b);
+    }
   }
   // drones señuelo sobre provincias propias no se muestran aquí (ver airPanel)
   if (!btns.length) return null;

@@ -10,7 +10,7 @@ import { countTasks, countByScreen, goTo } from './tasks.js';
 
 const NAV = [
   ['map', 'map', 'Mapa'], ['country', 'flag', 'País'], ['economy', 'coins', 'Economía'],
-  ['army', 'shield', 'Ejército'], ['diplomacy', 'rings', 'Diplom.'], ['tasks', 'check', 'Mi cuenta'], ['more', 'menu', 'Más'],
+  ['army', 'shield', 'Ejército'], ['diplomacy', 'rings', 'Diplom.'], ['tasks', 'check', 'Por mi cuenta'], ['more', 'menu', 'Más'],
 ];
 
 const go = (screen) => setState({ screen });
@@ -85,7 +85,7 @@ export function renderNav(el) {
   // Reutiliza los 7 botones: solo se actualizan atributos y la insignia (sin parpadeo ni saltos).
   if (el.children.length !== NAV.length) {
     el.replaceChildren(...NAV.map(([id, ic, label]) => h('button', { 'data-nav': id, 'aria-label': ({ tasks: 'Por mi cuenta', diplomacy: 'Diplomacia' })[id] || label, onclick: () => go(id) },
-      icon(ic), h('span', { class: 'nl' }, label))));
+      icon(ic), h('span', { class: 'nl' + (id === 'tasks' ? ' nl2' : '') }, label))));
   }
   NAV.forEach(([id], i) => {
     const b = el.children[i];

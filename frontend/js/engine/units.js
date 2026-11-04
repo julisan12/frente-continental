@@ -14,12 +14,14 @@
 //   { action:'form_create', name, divs:[ids] } / { action:'form_dissolve', id } / { action:'form_order', id, type, target }
 //
 import { ensure, ok, err, news, r1, r2 } from './extutil.js';
-import { sync_armies, at_war, is_sea_route, next_id, allies_of } from './state.js';
+import { sync_armies, at_war, is_sea_route, next_id, allies_of, raw_power } from './state.js';
 import { queue_order, OrderError } from './orders.js';
 import { stock_of } from './supply.js';
-import { prov_geo, prov_yield, prov_targets } from './provinces.js';
+import { prov_geo, prov_yield, prov_targets, prov_labc_level, BUILD } from './provinces.js';
+import * as AERO from './aero.js';
+import * as F from './features.js';
 import { army_check } from './dipext.js';
-import { ROSTER, MIGRATE_KIND, soil_mods } from './roster.js';
+import { ROSTER, MIGRATE_KIND, soil_mods, lookup, TERRAIN_GROUP } from './roster.js';
 
 // Tanda 3: el catálogo vive en roster.js (ROSTER). UNIT_TYPES se mantiene como alias por compatibilidad.
 export { ROSTER, KINDS, CLASS_NAME, MIGRATE_KIND, soil_mods, lookup, TERRAIN_GROUP, SOIL_NAME, SOIL_MODS } from './roster.js';
@@ -38,22 +40,303 @@ export function kind_of(d) {
   return 'inf';
 }
 
-// ---- Ganchos de la Tanda 3 (trabajador A los implementa; firmas estables, usadas por military/orders/provinces) ----
+// ---- Ganchos de la Tanda 3 (firmas estables, usadas por military/orders/provinces/aero y la interfaz) ----
+//
+// FORMULA DE COMBATE (Tanda 3):
+//   ataque de una division  = (atk/4) x suelo.atk x emparejamiento(vs) x [armas combinadas 1,10] x [x1,33 marina por mar]
+//   defensa de una division = (def/5) x suelo.def / emparejamiento_enemigo x [armas combinadas 1,10]
+//   atk/def ya incluyen +10 % por cada mejora investigada (unit_stats). El suelo es el terreno dominante del pais
+//   objetivo (soil_mods). El emparejamiento es la media, ponderada por poder, de lookup(vs, tipo_enemigo) sobre las
+//   divisiones enfrentadas (game.ext.battle); sin batalla en curso vale 1.
+//   perdidas (loss_mult) = lookup(dmg, enemigo) x suelo.dmg x [en carga x2] x [fortaleza -5 %/nivel defendiendo];
+//   la artilleria a distancia no sufre perdidas al atacar.
+const AIR_CLS = new Set(['air', 'drone', 'heli', 'nav']);
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+
+/** Garantiza kind y `full` (composicion al 100 %) de una division; perezoso para partidas antiguas. */
+export function ensure_div(game, d) {
+  if (!d) return d;
+  if (!d.kind || !ROSTER[d.kind]) d.kind = kind_of(d);
+  if (!d.full) {
+    const ut = ROSTER[d.kind];
+    d.full = { troops: Math.max(ut.troops, d.troops || 0), tanks: Math.max(ut.tanks, d.tanks || 0), planes: Math.max(ut.planes, d.planes || 0) };
+  }
+  return d;
+}
+
+function _done(game, cid) {
+  const t = game && game.ext && game.ext.techs && game.ext.techs[cid];
+  return (t && t.done) || [];
+}
+
+/** Vida de la division 0..1: efectivos actuales / efectivos al 100 % (d.full). */
+export function vida_of(game, d) {
+  ensure_div(game, d);
+  const f = d.full;
+  const full = raw_power(f.troops, f.tanks, f.planes);
+  if (full <= 0) return 1;
+  return clamp01(raw_power(d.troops || 0, d.tanks || 0, d.planes || 0) / full);
+}
+
+/** Estadisticas efectivas de una division (o de un tipo + dueno) con las mejoras ya aplicadas. */
+export function unit_stats(game, dOrKind, owner) {
+  const d = dOrKind && typeof dOrKind === 'object' ? dOrKind : null;
+  const kind = d ? kind_of(d) : dOrKind;
+  const ut = ROSTER[kind];
+  if (!ut) return null;
+  const own = owner || (d && d.owner) || (game && game.player);
+  const done = _done(game, own);
+  const up = (ut.up || []).filter((t) => done.includes(t)).length;
+  const k = 1 + 0.1 * up;
+  const vida = d ? vida_of(game, d) : 1;
+  const hp = Math.round(ut.hp * k * 10) / 10;
+  let state = 'lista';
+  if (d && (d.st === 'recarga' || d.st === 'carga' || d.st === 'marcha')) state = d.st;
+  return {
+    kind, name: ut.name, cls: ut.cls,
+    hp, atk: Math.round(ut.atk * k * 100) / 100, def: Math.round(ut.def * k * 100) / 100,
+    spd: ut.spd + (kind === 'elite' && done.includes('elite_u1') ? 1 : 0),
+    cost: ut.cost, upkeep: ut.upkeep + (ut.cls === 'drone' ? 0.4 : 0), turns: ut.turns,
+    vida, hpNow: Math.round(hp * vida * 10) / 10, up, state, rl: d && d.rl != null ? d.rl : 0,
+  };
+}
+
+/** Repone `frac` (0..1) de la fuerza maxima de la division, sin pasar de d.full. */
+export function heal(game, d, frac) {
+  ensure_div(game, d);
+  const f = d.full;
+  const fr = clamp01(frac == null ? 1 : frac);
+  d.troops = Math.min(f.troops, (d.troops || 0) + f.troops * fr);
+  d.tanks = Math.min(f.tanks, (d.tanks || 0) + f.tanks * fr);
+  d.planes = Math.min(f.planes, (d.planes || 0) + f.planes * fr);
+  return d;
+}
+
+function _wavg(list, fn) {
+  let w = 0, s = 0;
+  for (const x of list) {
+    const p = Math.max(0.1, raw_power(x.troops || 0, x.tanks || 0, x.planes || 0));
+    w += p; s += p * fn(x);
+  }
+  return w > 0 ? s / w : 1;
+}
+const _arr = (x) => (Array.isArray(x) ? x : x ? [x] : []);
+
+/** Emparejamiento (media ponderada) de `vs` de la division d contra las divisiones `opp`. */
+export function matchup_vs(d, opp) {
+  const ut = ROSTER[kind_of(d)];
+  const list = _arr(opp);
+  if (!ut || !list.length) return 1;
+  return _wavg(list, (o) => lookup(ut.vs, kind_of(o)));
+}
+/** Multiplicador de daño recibido por d desde las divisiones `opp`. */
+export function matchup_dmg(d, opp) {
+  const ut = ROSTER[kind_of(d)];
+  const list = _arr(opp);
+  if (!ut || !list.length) return 1;
+  return _wavg(list, (o) => lookup(ut.dmg, kind_of(o)));
+}
+
 /** Multiplicador de pérdidas de la división d frente a las divisiones `opp` (emparejamientos: tp ×4 ante at/elite/bomb,
  *  artillería a distancia atacando → 0, fortaleza, suelo). attacking = true si d es atacante. */
-export function loss_mult(game, d, opp, attacking) { void game; void d; void opp; void attacking; return 1.0; }
+export function loss_mult(game, d, opp, attacking) {
+  const kind = kind_of(d);
+  const ut = ROSTER[kind];
+  if (!ut) return 1.0;
+  if (attacking && (ut.tags || []).includes('ranged')) return 0;
+  const list = _arr(opp);
+  let m = matchup_dmg(d, list);
+  // suelo: dominante del pais donde se combate (el del defensor)
+  const where = attacking ? (list[0] && list[0].location) : d.location;
+  if (where && game.ext) {
+    const T = _dominant_terrain(game, where);
+    if (T) m *= soil_mods(kind, T).dmg || 1;
+  }
+  if (d.st === 'carga') m *= 2;
+  if (!attacking && game.ext && game.ext.prov) {
+    let lv = 0;
+    for (const p of Object.values(game.ext.prov)) if (p.c === d.location && p.o === d.owner && (p.b.fuerte || 0) > lv) lv = p.b.fuerte;
+    m *= 1 - Math.min(0.5, 0.05 * lv);
+  }
+  return Math.max(0, m);
+}
+
 /** false si la división no puede atacar ni defender (en carga, recarga, marcha). */
-export function can_act(game, d) { void game; return !(d && (d.st === 'recarga' || d.st === 'carga' || d.st === 'marcha')); }
+export function can_act(game, d) {
+  if (!d) return true;
+  if (d.st === 'recarga' || d.st === 'carga' || d.st === 'marcha') return false;
+  try { return AERO.can_act(game, d) !== false; } catch (e) { return true; }
+}
+
 /** Motivo (string) por el que la división no puede recibir la orden `type` (move|attack|defend|front|reorganize), o null. */
-export function order_check_div(game, d, type, target) { void game; void d; void type; void target; return null; }
-/** Motivo por el que `ent` no puede producir `kind` en la provincia `pid` (tecnología, edificios, recursos, capacidad), o null. */
-export function recruit_check(game, ent, kind, pid) { void game; void ent; void kind; void pid; return null; }
+export function order_check_div(game, d, type, target) {
+  if (!d) return null;
+  ensure_div(game, d);
+  const ut = ROSTER[d.kind];
+  if (!ut) return null;
+  if (type === 'move' || type === 'attack') {
+    if (ut.static || ut.spd === 0) return type === 'move' ? `${ut.name}: unidad estática, no puede moverse.` : `${ut.name}: unidad estática, solo defiende su territorio.`;
+    if (d.st === 'carga') return `${d.name} está en carga (ferrocarril): no puede moverse ni atacar este turno.`;
+    if (d.st === 'recarga') return `${d.name} está en recarga${d.rl ? ` (${d.rl} turno${d.rl === 1 ? '' : 's'})` : ''}: no puede moverse ni atacar.`;
+    if (d.st === 'marcha') return `${d.name} está en marcha: no puede moverse ni atacar este turno.`;
+  }
+  if (type === 'attack' && AIR_CLS.has(ut.cls) && target) {
+    let r = true;
+    try { r = AERO.range_ok(game, d, target); } catch (e) { r = true; }
+    if (r === false) return `${d.name}: el objetivo está fuera de su radio de acción desde la base.`;
+  }
+  return null;
+}
+
 /** Cola de producción de `cid`: [{id, kind, pid, left, total}]. */
 export function prod_queue(game, cid) { const q = game.ext && game.ext.prodq && game.ext.prodq[cid]; return Array.isArray(q) ? q : []; }
+
+function _prov_name(pid) { try { const g = prov_geo().byId[pid]; return g ? g.n : pid; } catch (e) { return pid; } }
+
+/** Provincia de producción por defecto de `ent`: su capital (o la primera provincia propia). */
+export function default_pid(game, ent) {
+  const pr = game.ext && game.ext.prov; if (!pr) return null;
+  let first = null;
+  for (const [pid, p] of Object.entries(pr)) {
+    if (p.o !== ent) continue;
+    if (p.cap) return pid;
+    if (!first) first = pid;
+  }
+  return first;
+}
+
+/** Turnos de producción de `kind` en la provincia `pid` (los talleres los reducen). */
+export function prod_turns(game, kind, pid) {
+  const ut = ROSTER[kind]; if (!ut) return 1;
+  const p = pid && game.ext && game.ext.prov && game.ext.prov[pid];
+  return Math.max(1, ut.turns - Math.floor(((p && p.b && p.b.taller) || 0) / 2));
+}
+
+/** Motivo por el que `ent` no puede producir `kind` en la provincia `pid` (tecnología, edificios, recursos, capacidad), o null. */
+export function recruit_check(game, ent, kind, pid) {
+  const ut = ROSTER[kind];
+  if (!ut) return 'Tipo de unidad desconocido.';
+  const c = game.countries[ent];
+  if (!c) return 'País no encontrado.';
+  if (ut.tech && game.ext && game.ext.techs && game.ext.techs[ent] && !_done(game, ent).includes(ut.tech)) {
+    const t = F.TECHS && F.TECHS.find((x) => x.id === ut.tech);
+    return `Requiere la tecnología: ${t ? t.name : ut.tech}.`;
+  }
+  const pr = game.ext && game.ext.prov;
+  if (pr) {
+    const id = pid || default_pid(game, ent);
+    const p = id && pr[id];
+    if (!p) return 'No tienes una provincia donde producir.';
+    if (p.o !== ent) return 'La provincia de producción no es tuya.';
+    for (const [k, lv] of Object.entries(ut.req || {})) {
+      const have = k === 'labc' ? prov_labc_level(game, ent) : ((p.b && p.b[k]) || 0);
+      if (have < lv) {
+        const B = BUILD[k];
+        const nm = B ? (k === 'taller' && lv >= 4 ? 'Fábrica' : B.name) : k;
+        return `Requiere ${nm} nivel ${lv}${k === 'labc' ? ' en tu país' : ' en la provincia'} (tienes ${have}).`;
+      }
+    }
+  }
+  if ((c.money || 0) < ut.cost) return `Fondos insuficientes (se necesitan ${ut.cost}).`;
+  if (game.ext && game.ext.stock && game.ext.stock[ent]) {
+    const st = stock_of(game, ent);
+    for (const [res, qty] of Object.entries(ut.needs || {})) {
+      if ((st[res] || 0) < qty) return `Recursos insuficientes: ${res} (se necesitan ${qty}, tienes ${Math.floor(st[res] || 0)}).`;
+    }
+  }
+  const queuedT = prod_queue(game, ent).reduce((s, q) => s + ((ROSTER[q.kind] && ROSTER[q.kind].troops) || 0), 0);
+  const ac = army_check(game, ent, 'unit_recruit', { troops: ut.troops + queuedT });
+  if (ac) return ac;
+  if (AIR_CLS.has(ut.cls)) {
+    let r = null;
+    try { r = AERO.recruit_check(game, ent, kind, pid || default_pid(game, ent)); } catch (e) { r = null; }
+    if (r) return r;
+  }
+  return null;
+}
+
+/** Encola la producción de `kind` para `ent` (descuenta dinero y recursos). Devuelve {ok,msg}|{ok:false,error}. */
+export function enqueue_unit(game, ent, kind, pid) {
+  const ut = ROSTER[kind];
+  if (!ut) return err('Tipo de unidad desconocido.');
+  if (game.ext && game.ext.prov && pid && !game.ext.prov[pid]) return err('Provincia desconocida.');
+  const where = pid || default_pid(game, ent) || null;
+  const why = recruit_check(game, ent, kind, where);
+  if (why) return err(why);
+  const c = game.countries[ent];
+  c.money = Math.round((c.money - ut.cost) * 100) / 100;
+  if (game.ext && game.ext.stock && game.ext.stock[ent]) {
+    const st = stock_of(game, ent);
+    for (const [res, qty] of Object.entries(ut.needs || {})) st[res] = Math.max(0, (st[res] || 0) - qty);
+  }
+  const total = prod_turns(game, kind, where);
+  const q = ensure(game.ext.prodq, ent, () => []);
+  q.push({ id: next_id(game, 'q'), kind, pid: where, left: total, total });
+  const loc = where ? _prov_name(where) : c.name;
+  return ok(`${ut.name} en producción en ${loc}: ${total} turno${total === 1 ? '' : 's'}.`);
+}
+
+function _ordinal(n) {
+  return ['', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª', '7ª', '8ª', '9ª', '10ª', '11ª', '12ª', '13ª', '14ª', '15ª'][n] || n + 'ª';
+}
+
+/** Crea la división de una producción terminada; null si ya no hay donde situarla. */
+function _spawn(game, cid, q) {
+  const ut = ROSTER[q.kind];
+  const pr = game.ext && game.ext.prov;
+  let pid = q.pid;
+  if (pr && (!pr[pid] || pr[pid].o !== cid)) pid = default_pid(game, cid);
+  let location = cid;
+  if (pr && pid) location = pr[pid].c;
+  else if (pr) return null;
+  const count = (game.divisions || []).filter((d) => d.owner === cid && d.kind === q.kind).length + 1;
+  const div = {
+    id: next_id(game, 'd'), name: `${_ordinal(count)} ${ut.name}`, owner: cid, location, kind: q.kind,
+    troops: ut.troops, tanks: ut.tanks, planes: ut.planes, stance: 'idle', org: 80,
+    full: { troops: ut.troops, tanks: ut.tanks, planes: ut.planes },
+  };
+  if (AIR_CLS.has(ut.cls)) div.base = pid || null;
+  game.divisions.push(div);
+  return div;
+}
+
 /** Poder de ataque de `ent` contra la provincia `pid` (suelo por clase, estados); null = usar el cálculo clásico. */
-export function prov_strike_power(game, ent, pid) { void game; void ent; void pid; return null; }
+export function prov_strike_power(game, ent, pid) {
+  if (!game.ext || !game.ext.prov) return null;
+  let T = null;
+  try { const gp = prov_geo().byId[pid]; T = gp && gp.t; } catch (e) { return null; }
+  let sum = 0;
+  for (const d of game.divisions || []) {
+    if (d.owner !== ent) continue;
+    const kind = kind_of(d); const ut = ROSTER[kind];
+    if (!ut || ut.static || ut.single || ut.onlyStatic) continue;
+    if (!can_act(game, d)) continue;
+    const st = unit_stats(game, d);
+    const base = (d.troops || 0) + (d.tanks || 0) * 0.03 + (d.planes || 0) * 0.04;
+    sum += base * (st.atk / 4) * (T ? soil_mods(kind, T).atk : 1);
+  }
+  return Math.round(sum * 0.3 * 10) / 10;
+}
+
 /** Aviso de movimiento de una división (ferrocarril «en carga», unidades lentas «en marcha», avenidas). */
-export function on_move(game, d, from, to) { void game; void d; void from; void to; }
+export function on_move(game, d, from, to) {
+  if (!game.ext || !d) return;
+  ensure_div(game, d);
+  const ut = ROSTER[d.kind];
+  if (!ut || d.st === 'recarga' || AIR_CLS.has(ut.cls)) return;
+  const pr = game.ext.prov;
+  const has = (cid, key) => !!pr && Object.values(pr).some((p) => p.c === cid && p.o === d.owner && (p.b[key] || 0) > 0);
+  if (has(from, 'ferrocarril') && has(to, 'ferrocarril')) {
+    d.st = 'carga'; d.stt = game.turn;
+    d.org = Math.min(100, (d.org == null ? 80 : d.org) + 15);
+    return;
+  }
+  const spd = unit_stats(game, d).spd;
+  if (spd !== 1) return;
+  const flat = TERRAIN_GROUP[_dominant_terrain(game, to)] === 'llano';
+  if (has(to, 'avenida') || flat) return;
+  d.st = 'marcha'; d.stt = game.turn;
+}
 
 // ------------------------------------------------------------------ interfaz estandar
 export function init(game) {
@@ -62,10 +345,8 @@ export function init(game) {
   ensure(game.ext, 'unrest', () => ({}));
   ensure(game.ext, 'loot', () => []);
   // Inferir y persistir kinds de todas las divisiones existentes
-  for (const d of game.divisions || []) {
-    if (!d.kind || !ROSTER[d.kind]) d.kind = kind_of(d);
-  }
   ensure(game.ext, 'prodq', () => ({}));
+  for (const d of game.divisions || []) ensure_div(game, d);
 }
 
 /** Acciones del jugador. Devuelve null si la accion no es de este modulo. */
@@ -76,53 +357,20 @@ export function action(game, body) {
   if (!c) return err('País no encontrado.');
 
   if (body.action === 'unit_recruit') {
-    const kind = body.kind;
-    const ut = UNIT_TYPES[kind];
-    if (!ut) return err('Tipo de unidad desconocido.');
-    // Validar tecnología requerida
-    if (ut.tech && game.ext && game.ext.techs && game.ext.techs[me]) {
-      if (!game.ext.techs[me].done.includes(ut.tech)) {
-        return err(`Requiere la tecnología: ${ut.tech}.`);
-      }
-    }
-    const acheck = army_check(game, me, 'unit_recruit', { troops: ut.troops });
-    if (acheck) return err(acheck);
-    // Validar dinero
-    if (c.money < ut.cost) return err(`Fondos insuficientes (se necesitan ${ut.cost}).`);
-    // Validar recursos si existe stock
-    if (game.ext && game.ext.stock && game.ext.stock[me]) {
-      const st = stock_of(game, me);
-      for (const [res, qty] of Object.entries(ut.needs || {})) {
-        if ((st[res] || 0) < qty) return err(`Recursos insuficientes: ${res} (se necesitan ${qty}, tienes ${st[res] || 0}).`);
-      }
-      // Descontar recursos
-      for (const [res, qty] of Object.entries(ut.needs || {})) st[res] = Math.max(0, (st[res] || 0) - qty);
-    }
-    // Descontar dinero
-    c.money = Math.round((c.money - ut.cost) * 100) / 100;
-    // Determinar ubicación
-    let location = me;
-    if (body.pid && game.ext && game.ext.prov && game.ext.prov[body.pid]) {
-      const prov = game.ext.prov[body.pid];
-      location = prov.c;
-      // Validar que la provincia pertenece al jugador
-      if (prov.o !== me && game.countries[location].owner !== me) {
-        location = me; // Revert a país natal si no es válida
-      }
-    }
-    // Crear división
-    const count = (game.divisions || []).filter(d => d.owner === me && d.kind === kind).length + 1;
-    const ordinal = ['', '1ª', '2ª', '3ª', '4ª', '5ª', '6ª', '7ª', '8ª', '9ª', '10ª', '11ª', '12ª', '13ª', '14ª', '15ª'][count] || count + 'ª';
-    const name = ordinal + ' ' + ut.name;
-    const div = {
-      id: next_id(game, 'd'), name, owner: me, location, kind,
-      troops: ut.troops, tanks: ut.tanks, planes: ut.planes,
-      stance: 'idle', org: 80
-    };
-    if (!game.divisions) game.divisions = [];
-    game.divisions.push(div);
-    sync_armies(game);
-    return ok(`${name} reclutada en ${game.countries[location].name}.`);
+    ensure(game.ext, 'prodq', () => ({}));
+    return enqueue_unit(game, me, body.kind, body.pid || null);
+  }
+
+  if (body.action === 'prod_cancel') {
+    ensure(game.ext, 'prodq', () => ({}));
+    const q = prod_queue(game, me);
+    const i = q.findIndex((x) => x.id === body.id);
+    if (i < 0) return err('Producción no encontrada.');
+    const it = q.splice(i, 1)[0];
+    const ut = ROSTER[it.kind];
+    const back = Math.round(ut.cost * 0.5 * 100) / 100;
+    c.money = Math.round((c.money + back) * 100) / 100;
+    return ok(`Producción cancelada: ${ut.name}. Se reembolsa el 50 % (${back}).`);
   }
 
   if (body.action === 'form_create') {
@@ -181,35 +429,55 @@ export function turn(game, rng, lines) {
   if (!game.ext) return;
   const me = game.player;
 
-  // Inferir y persistir kinds de todas las divisiones
+  ensure(game.ext, 'prodq', () => ({}));
   for (const d of game.divisions || []) {
-    if (!d.kind || !ROSTER[d.kind]) d.kind = kind_of(d);
+    ensure_div(game, d);
+    // estados temporales: «marcha» y «carga» duran el turno siguiente al movimiento; la recarga la lleva aero.js
+    if ((d.st === 'marcha' || d.st === 'carga') && (d.stt == null || game.turn - d.stt >= 2)) { delete d.st; delete d.stt; }
+    if (d.st === 'recarga' && d.rl == null) d.rl = (ROSTER[d.kind] && ROSTER[d.kind].reload) || 1;
+  }
+
+  // producciones: cuentan un turno y, al terminar, nace la division
+  for (const cid of Object.keys(game.ext.prodq)) {
+    const q = game.ext.prodq[cid];
+    if (!Array.isArray(q) || !game.countries[cid]) { delete game.ext.prodq[cid]; continue; }
+    const rest = [];
+    for (const it of q) {
+      it.left -= 1;
+      if (it.left > 0) { rest.push(it); continue; }
+      const ut = ROSTER[it.kind];
+      let why = null;
+      if (AIR_CLS.has(ut.cls)) { try { why = AERO.recruit_check(game, cid, it.kind, it.pid); } catch (e) { why = null; } }
+      const div = why ? null : _spawn(game, cid, it);
+      if (!div) {
+        const c = game.countries[cid];
+        c.money = Math.round((c.money + ut.cost) * 100) / 100;
+        if (cid === me) { lines.push(`No se pudo completar ${ut.name}: ${why || 'sin provincia disponible'}. Se reembolsa el coste.`); news(game, `${ut.name} cancelada: ${why || 'sin provincia disponible'}.`, 'mil'); }
+        continue;
+      }
+      if (cid === me) {
+        lines.push(`Producción terminada: ${div.name}.`);
+        news(game, `${div.name} termina su producción en ${game.countries[div.location].name}.`, 'mil');
+      }
+    }
+    game.ext.prodq[cid] = rest;
+  }
+  sync_armies(game);
+
+  // mantenimiento de unidades (ROSTER.upkeep; 0,4 extra por dron)
+  for (const d of game.divisions || []) {
+    const ut = ROSTER[d.kind]; const oc = game.countries[d.owner];
+    if (!ut || !oc) continue;
+    oc.money = Math.max(0, Math.round((oc.money - ut.upkeep - (ut.cls === 'drone' ? 0.4 : 0)) * 100) / 100);
   }
 
   // IA recluta tipos variados
   const alive = Object.keys(game.countries).filter(cid => game.countries[cid].owner === cid);
   for (const cid of alive) {
     if (cid === me) continue;
-    const c = game.countries[cid];
-    if (c.money < 300) continue;
-    if (rng.random() > 0.15) continue;
-    // Elegir tipo según techs disponibles
-    const techs = game.ext && game.ext.techs && game.ext.techs[cid] ? game.ext.techs[cid].done : [];
-    const opts = Object.keys(UNIT_TYPES).filter(k => {
-      const ut = UNIT_TYPES[k];
-      return !ut.tech || techs.includes(ut.tech);
-    });
-    if (!opts.length) continue;
-    const kind = opts[Math.floor(rng.random() * opts.length)];
-    const ut = UNIT_TYPES[kind];
-    if (c.money < ut.cost) continue;
-    c.money = Math.round((c.money - ut.cost) * 100) / 100;
-    const count = (game.divisions || []).filter(d => d.owner === cid && d.kind === kind).length + 1;
-    const div = {
-      id: next_id(game, 'd'), name: `${count}ª ${ut.name}`, owner: cid, location: cid, kind,
-      troops: ut.troops, tanks: ut.tanks, planes: ut.planes, stance: 'idle', org: 80
-    };
-    game.divisions.push(div);
+    if (game.countries[cid].money <= 250) continue;
+    if (rng.random() > 0.25) continue;
+    _ai_recruit(game, cid, rng);
   }
 
   // Limpiar formaciones: divisiones desaparecidas o separadas
@@ -251,6 +519,7 @@ export function turn(game, rng, lines) {
     // Incremento base
     const originalAlive = countries[p.c] && countries[p.c].owner === p.c;
     u += originalAlive ? 3 : 1;
+    u += F.tech_fx_sum(game, p.o, 'unrest'); // propaganda y servicios sociales (negativo)
     // Reducción por bases
     u -= 1.5 * (p.b.base || 0);
     // Reducción por guarnición (p.g / 10, tope 2)
@@ -290,6 +559,9 @@ export function pending(game) {
   const me = game.player;
   const unrest = game.ext.unrest;
   const prov = game.ext.prov;
+  for (const q of prod_queue(game, me)) {
+    if (q.left === 1 && ROSTER[q.kind]) out.push({ text: `Producción termina el próximo turno: ${ROSTER[q.kind].name}`, kind: 'mil', screen: 'army' });
+  }
   if (prov && unrest) {
     const high = Object.entries(unrest).filter(([pid, u]) => {
       const p = prov[pid];
@@ -348,64 +620,92 @@ export function pending(game) {
 }
 
 // ------------------------------------------------------------------ ganchos
-/** Tabla de modificadores de terreno y emparejamientos (para la UI). */
+/** Tabla de modificadores de suelo por unidad (para la UI), coherente con roster.soil_mods.
+ *  terr[codigo] = multiplicador de ataque; soil[grupo] = {atk, def, dmg, move}. */
 export const MODS = {};
 for (const k of Object.keys(ROSTER)) {
-  const terr = {};
+  const terr = {}; const soil = {};
   for (const t of ['S', 'M', 'D', 'P', 'V', 'B', 'E', 'T', 'A']) { const m = soil_mods(k, t); if (m.atk !== 1) terr[t] = m.atk; }
-  MODS[k] = { terr, desc: ROSTER[k].desc };
+  for (const [g, t] of [['bosque', 'B'], ['montana', 'M'], ['llano', 'P']]) soil[g] = soil_mods(k, t);
+  MODS[k] = { terr, soil, desc: ROSTER[k].desc };
 }
 
-/** Multiplicador de ataque de una division contra el territorio `target` (tipo + terreno). */
+/** Multiplicador de ataque de una division contra el territorio `target` (formula de combate; ver cabecera de ganchos). */
 export function div_attack_mult(game, d, target) {
   if (!game.ext) return 1.0;
-  const kind = d.kind || kind_of(d);
-  const ut = UNIT_TYPES[kind];
+  ensure_div(game, d);
+  const kind = d.kind;
+  const ut = ROSTER[kind];
   if (!ut) return 1.0;
-  let m = ut.atk / 4;
-
-  // Terreno dominante del país objetivo
-  const terrainType = _dominant_terrain(game, target);
-  const modT = MODS[kind] && MODS[kind].terr ? MODS[kind].terr[terrainType] : 1.0;
-  m *= modT || 1.0;
-
-  // Compensar penalización marítima para marina
-  if (ut.cls === 'nav' && is_sea_route(d.location, target)) {
-    m *= 1.33; // Compensa SEA_PENALTY 25%
-  }
-
-  // Artillería contra fortalezas
-  if (kind === 'art') {
-    let hasFortalezas = false;
-    if (game.ext.prov) {
-      const provs = Object.values(game.ext.prov).filter(p => p.c === target && p.o === game.countries[target].owner);
-      hasFortalezas = provs.some(p => (p.b.base || 0) > 0);
-    }
-    if (hasFortalezas) m *= 1.15;
-    else m *= 0.9; // Sin fortalezas, penalización leve
-  }
-
-  // Bono de armas combinadas
+  let m = unit_stats(game, d).atk / 4;
+  const T = _dominant_terrain(game, target);
+  if (T) m *= soil_mods(kind, T).atk;
+  const b = game.ext.battle;
+  if (b) m *= matchup_vs(d, b.def);
+  // marina: compensa la penalizacion maritima general
+  if (ut.cls === 'nav' && is_sea_route(d.location, target)) m *= 1.33;
   if (_in_combined_arms_formation(game, d)) m *= 1.10;
-
   return m;
 }
 
 /** Multiplicador de defensa de una division en `target`. */
 export function div_defense_mult(game, d, target) {
   if (!game.ext) return 1.0;
-  const kind = d.kind || kind_of(d);
-  const ut = UNIT_TYPES[kind];
+  ensure_div(game, d);
+  const kind = d.kind;
+  const ut = ROSTER[kind];
   if (!ut) return 1.0;
-  let m = ut.def / 5;
-
-  const terrainType = _dominant_terrain(game, target);
-  const modT = MODS[kind] && MODS[kind].terr ? MODS[kind].terr[terrainType] : 1.0;
-  m *= modT || 1.0;
-
+  let m = unit_stats(game, d).def / 5;
+  const T = _dominant_terrain(game, target);
+  if (T) m *= soil_mods(kind, T).def;
+  const b = game.ext.battle;
+  if (b) m /= Math.max(0.25, matchup_vs_many(b.att, d));
   if (_in_combined_arms_formation(game, d)) m *= 1.10;
-
   return m;
+}
+
+/** Emparejamiento medio de las divisiones `atts` (atacantes) contra la division d (su `vs` sobre el tipo de d). */
+function matchup_vs_many(atts, d) {
+  const dk = kind_of(d);
+  const list = _arr(atts);
+  if (!list.length) return 1;
+  return _wavg(list, (a) => { const u = ROSTER[kind_of(a)]; return u ? lookup(u.vs, dk) : 1; });
+}
+
+/** IA: recluta un tipo variado en una provincia con base/capital/taller/aeropuerto. */
+function _ai_recruit(game, cid, rng) {
+  const pr = game.ext && game.ext.prov;
+  const c = game.countries[cid];
+  let cands = [];
+  if (pr) {
+    cands = Object.keys(pr).filter((pid) => { const p = pr[pid]; return p.o === cid && (p.cap || (p.b.base || 0) > 0); });
+    if (!cands.length) { const d = default_pid(game, cid); if (d) cands = [d]; }
+    if (!cands.length) return;
+  } else cands = [null];
+  const pid = cands[Math.floor(rng.random() * cands.length)];
+  const p = pid && pr[pid];
+  const early = game.turn < 15;
+  const owned = {};
+  for (const d of game.divisions || []) if (d.owner === cid) owned[d.kind] = (owned[d.kind] || 0) + 1;
+  for (const q of prod_queue(game, cid)) owned[q.kind] = (owned[q.kind] || 0) + 1;
+  const opts = [];
+  for (const k of Object.keys(ROSTER)) {
+    const ut = ROSTER[k];
+    if (ut.cls === 'drone' || (c.money - ut.cost) < 120) continue;
+    if (recruit_check(game, cid, k, pid)) continue;
+    let w = 1 / (1 + (owned[k] || 0));
+    if (ut.cls === 'inf') w *= early ? 3 : 1.2;
+    if (p && ((p.b.taller || 0) >= 1) && ut.cls === 'arm') w *= 2.5;
+    if (p && ((p.b.aeropuerto || 0) >= 1) && (ut.cls === 'air' || ut.cls === 'heli')) w *= 2.5;
+    if (ut.cls === 'nav') w *= 1.5;
+    if (ut.static) w *= 0.5;
+    opts.push([k, w]);
+  }
+  if (!opts.length) return;
+  let r = rng.random() * opts.reduce((a, x) => a + x[1], 0);
+  let pick = opts[0][0];
+  for (const [k, w] of opts) { r -= w; if (r <= 0) { pick = k; break; } }
+  enqueue_unit(game, cid, pick, pid);
 }
 
 /** Conquista de un pais entero (military.capture): botin y descontento. */
@@ -533,30 +833,25 @@ export function on_prov_capture(game, attacker, pid, old_owner) {
 }
 
 // ------------------------------------------------------------------ ayudantes internos
+const _terrCache = new WeakMap();
+/** Codigo de terreno dominante del pais `cid` (cache por partida; los terrenos no cambian). */
 function _dominant_terrain(game, cid) {
-  // Cache por país
-  if (!_dominant_terrain._cache) _dominant_terrain._cache = {};
-  if (_dominant_terrain._cache[cid]) return _dominant_terrain._cache[cid];
-
-  if (!game.ext || !game.ext.prov) return 'P'; // default pampa
-  const provs = Object.values(game.ext.prov).filter(p => p.c === cid);
-  if (!provs.length) return 'P';
-
-  const count = {};
+  const pr = game.ext && game.ext.prov;
+  if (!pr) return 'P';
+  let cache = _terrCache.get(pr);
+  if (!cache) { cache = {}; _terrCache.set(pr, cache); }
+  if (cache[cid]) return cache[cid];
   let geo = null;
   try { geo = prov_geo(); } catch (e) { return 'P'; }
-
-  for (const p of provs) {
-    const pid = Object.keys(game.ext.prov).find(k => game.ext.prov[k] === p);
+  const count = {};
+  for (const pid of Object.keys(pr)) {
+    if (pr[pid].c !== cid) continue;
     const gp = geo.byId[pid];
     if (gp && gp.t) count[gp.t] = (count[gp.t] || 0) + 1;
   }
-
   let max = 0, dom = 'P';
-  for (const [t, n] of Object.entries(count)) {
-    if (n > max) { max = n; dom = t; }
-  }
-  _dominant_terrain._cache[cid] = dom;
+  for (const [t, n] of Object.entries(count)) if (n > max) { max = n; dom = t; }
+  cache[cid] = dom;
   return dom;
 }
 

@@ -2,11 +2,12 @@
 import { tabStrip } from './tabs.js';
 import { h, fmtMoney, ALIGN, MONEY_SCALE, SEND_MIN, SEND_DEFAULT, toast } from '../util.js';
 import { icon } from '../icons.js';
-import { getState, setState, player, cname, ownerOf, relation, isAtWar, partners, sendOrder, loadDetail, detail } from '../state.js';
+import { getState, setState, ownedBy, player, cname, ownerOf, relation, isAtWar, partners, sendOrder, loadDetail, detail } from '../state.js';
 import { relBar, statusPills, armyEst } from './country.js';
-import { amountModal, confirmModal } from './modals.js';
+import { amountModal, confirmModal, openModal } from './modals.js';
 import * as ST from '../state.js';
 import * as F from '../engine/features.js';
+import * as DX from '../engine/dipext.js';
 
 let tab = 'dip';
 const TABS = [['dip', 'Diplomacia'], ['ali', 'Alianzas'], ['tra', 'Acuerdos'], ['gue', 'Guerras'], ['blo', 'Bloques'], ['pac', 'Tratados'], ['esp', 'Espionaje']];
@@ -40,6 +41,78 @@ function actions(t) {
     }, 'danger') : null);
 }
 
+// ---- Ataque sorpresa y presión diplomática (Tanda 2) ----
+const supSel = { terr: null };
+
+function surprisePanel(t, redraw) {
+  const S = getState();
+  const me = player();
+  const g = S.game;
+  if (!g.ext || isAtWar(me, t) || (g.treaties || []).some((x) => x.type === 'alliance' && ((x.a === me && x.b === t) || (x.b === me && x.a === t)))) return null;
+  const terrs = ownedBy(t);
+  const prevs = terrs.map((id) => ({ id, p: DX.surprise_preview(g, id) }));
+  const usable = prevs.filter((x) => !x.p.reason && x.p.divs.length);
+  if (!usable.some((x) => x.id === supSel.terr)) supSel.terr = (usable[0] || prevs[0] || {}).id || null;
+  const cur = prevs.find((x) => x.id === supSel.terr);
+  const p = cur && cur.p;
+  const can = !!p && !p.reason && p.divs.length > 0 && g.countries[me].money >= p.cost;
+  const why = !p ? 'Sin territorios.' : p.reason || (g.countries[me].money < p.cost ? 'Fondos insuficientes.' : '');
+  const go = async () => {
+    const odds = F.odds(p.attack_est, p.defense_est);
+    const ok = await confirmModal({
+      title: 'Ataque sorpresa',
+      text: `Atacar ${cname(supSel.terr)} sin declaración previa: ataque ${p.attack_est} (bono ×${p.mult}) contra defensa ${p.defense_est}${p.fogged ? ' (aprox.)' : ''}, `
+        + `≈ ${Math.round(odds * 100)}% de victoria. Coste ${fmtMoney(p.cost)}, ${p.stab} de estabilidad (además de la guerra). `
+        + `Relación ${p.rel_all} con los otros ${p.countries_affected - p.allies_affected} países, ${p.rel_allies} con sus aliados/bloque `
+        + `(${p.allies_affected}) y ${p.rel_target} extra con ${cname(t)}. Todos desconfiarán de ti.`,
+      okText: 'Atacar ahora', danger: true });
+    if (!ok) return;
+    const done = await act({ action: 'surprise_attack', target: supSel.terr });
+    const lb = getState().game.ext && getState().game.ext.dip && getState().game.ext.dip.last_battle;
+    if (done && lb) {
+      const m = openModal([
+        h('h2', null, lb.won ? 'Victoria' : 'Ataque rechazado'),
+        h('div', { class: 'grid2' },
+          h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Ataque'), h('b', null, String(lb.attack))),
+          h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Defensa'), h('b', null, String(lb.defense))),
+          h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Bajas propias'), h('b', null, String(lb.attacker_losses))),
+          h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Bajas enemigas'), h('b', null, String(lb.defender_losses))),
+          h('div', { class: 'kv', style: { gridColumn: '1 / -1' } }, h('span', { class: 'muted' }, 'Territorio capturado'), h('b', null, lb.captured ? 'Sí: ' + lb.target_name : 'No'))),
+        h('p', { class: 'muted small' }, `${lb.affected} países desconfían de ti tras el golpe.`),
+        h('div', { class: 'acts' }, h('button', { class: 'btn primary', onclick: () => m.close() }, 'Entendido'))], { label: 'Resultado del ataque' });
+    }
+    redraw();
+  };
+  return h('div', { class: 'panel stack dip-sorpresa' }, h('h3', { class: 'tag-uc' }, 'Ataque sorpresa'),
+    h('div', { class: 'muted small' }, 'Se resuelve al instante, con bono de sorpresa. Sin declaración: todos los países desconfiarán de ti.'),
+    terrs.length > 1 ? h('select', { class: 'field', 'aria-label': 'Territorio objetivo', onchange: (e) => { supSel.terr = e.target.value; redraw(); } },
+      prevs.map((x) => h('option', { value: x.id, selected: x.id === supSel.terr }, cname(x.id) + (x.p.divs.length && !x.p.reason ? '' : ' (sin acceso)')))) : null,
+    p && p.divs.length ? h('div', { class: 'muted small' }, `Estimado: ataque ${p.attack_est} vs defensa ${p.defense_est} · ${p.divs.length} división(es) · coste ${fmtMoney(p.cost)}`) : null,
+    h('button', { class: 'btn danger block dip-btn', disabled: !can, onclick: go }, icon('swords'), 'Ataque sorpresa'),
+    !can && why ? h('div', { class: 'muted small' }, why) : null);
+}
+
+function pressPanel(t, rv, redraw) {
+  const g = getState().game;
+  const me = player();
+  if (!g.ext) return null;
+  const allied = (g.treaties || []).some((x) => x.type === 'alliance' && ((x.a === me && x.b === t) || (x.b === me && x.a === t)));
+  const done = g.ext.dip && g.ext.dip.provoked && g.ext.dip.provoked[t] === g.turn;
+  const money = g.countries[me].money;
+  return h('div', { class: 'panel stack dip-presion' }, h('h3', { class: 'tag-uc' }, 'Presionar'),
+    h('div', { class: 'muted small' }, 'Empeora a propósito la relación: con menos de −40 el país puede volverse hostil, y te permite justificar una guerra sin romper tratados.'),
+    allied ? h('div', { class: 'muted small' }, 'Rompe la alianza primero.') : Object.entries(DX.PROVOKE).map(([k, v]) => {
+      const next = Math.max(-100, rv + v.rel);
+      return h('button', { class: 'btn block dip-btn dip-prov', disabled: !!done || money < v.cost, onclick: async () => {
+        if (await confirmModal({ title: v.name, text: `${v.desc} Relación ${v.rel} (de ${rv} a ${next}), coste ${fmtMoney(v.cost)}${v.stab ? ', ' + v.stab + ' de estabilidad' : ''}.`, okText: 'Presionar', danger: true })) {
+          await act({ action: 'provoke', target: t, kind: k });
+          redraw();
+        }
+      } }, icon('close'), h('span', { class: 'grow' }, v.name), h('span', { class: 'muted small' }, `${fmtMoney(v.cost)} · ${v.rel} → ${next}`));
+    }),
+    done ? h('div', { class: 'muted small' }, 'Ya presionaste a este país este turno.') : null);
+}
+
 function target(el) {
   const S = getState();
   const me = player();
@@ -64,6 +137,8 @@ function target(el) {
         h('div', { class: 'kv', style: { gridColumn: '1 / -1' } }, h('span', { class: 'muted' }, 'Ejército est.'), h('b', null, d && d.army_estimate != null ? armyEst(d.army_estimate) : '?')),
         h('div', { class: 'kv' }, h('span', { class: 'muted' }, 'Alineamiento'), h('b', null, ALIGN[c.alignment] || c.alignment)))),
     h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Acciones'), actions(t)),
+    surprisePanel(t, () => render(el)),
+    pressPanel(t, rv, () => render(el)),
     h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Países'),
       h('div', { class: 'list' }, list.map((id) => h('button', { class: 'item', 'aria-pressed': String(id === t), onclick: () => setState({ diploTarget: id }) },
         h('span', { class: 'grow' }, cname(id)), statusPills(id), h('span', { class: 'muted small' }, relation(me, id)))))));
@@ -81,16 +156,25 @@ function treatyList(types, withBreak) {
   }));
 }
 
+function aggLog() {
+  const d = getState().game.ext && getState().game.ext.dip;
+  const l = ((d && d.log) || []).slice(-10).reverse();
+  return h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Acciones agresivas recientes'),
+    l.length ? h('div', { class: 'list' }, l.map((x) => h('div', { class: 'item' }, h('span', { class: 'grow small' }, x.text), h('span', { class: 'muted small' }, 'T' + x.turn))))
+      : h('div', { class: 'empty' }, 'Sin acciones agresivas.'));
+}
+
 function wars() {
+  const wlog = aggLog();
   const S = getState();
   const me = player();
   const l = (S.game.wars || []).filter((w) => w.a === me || w.b === me);
-  if (!l.length) return h('div', { class: 'empty' }, 'Estás en paz.');
-  return h('div', { class: 'list' }, l.map((w) => {
+  const list = !l.length ? h('div', { class: 'empty' }, 'Estás en paz.') : h('div', { class: 'list' }, l.map((w) => {
     const other = w.a === me ? w.b : w.a;
     return h('button', { class: 'item', onclick: () => setState({ diploTarget: other, selected: other, screen: 'map' }) },
       icon('swords'), h('span', { class: 'grow' }, 'Guerra contra ' + cname(other)), h('span', { class: 'muted small' }, 'desde T' + w.since_turn));
   }));
+  return h('div', { class: 'stack' }, list, wlog);
 }
 
 // ---- Pestañas extendidas (requieren game.ext, modo local) ----

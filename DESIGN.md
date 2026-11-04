@@ -39,9 +39,14 @@ Division { id, name:"1ª División Blindada", owner, location:countryId, troops,
 Order { id, type, target, division_id?, cost, params{} }
 Project { id, owner, kind:"factory"|"road"|"port"|"school"|"barracks", name, turns_left, total_turns, cost }
 ```
-Inicial (derivado del original, p = power): money=p*65 (en millones $, mostrar x10 → "$650 M"), industry=p*12,
-army=p*7 (miles de tropas ×1000 en pantalla), production=p*15, stability=70, tanks=p*4, planes=p*2,
-population ≈ p*6 (Brasil 70, México 38 – valores de juego), infrastructure=30+p*4. 2 divisiones iniciales por país.
+Inicial: cada país tiene un objeto `start` con valores balanceados para 1962 (abstracción de juego, no estadísticas oficiales):
+money (40-360 unidades internas, x10 en pantalla → "$400-$3600 M"), industry (12-120), production (19-120),
+army (5-90 miles de tropas), tanks (0-28), planes (0-16), stability (35-82), development (1.2-5), infrastructure (12-60),
+population (valores aproximados de 1962 en millones). Cada país tiene fortalezas y debilidades distintas, ninguno cercano
+al máximo en todo. Si el campo `start` no existe (compatibilidad), se usa la fórmula derivada del original (p = power):
+money=p*65, industry=p*12, army=p*7, production=p*15, stability=70, tanks=p*4, planes=p*2, development=1+p*0.25,
+population ≈ p*6 (o POP_OVERRIDE), infrastructure=30+p*4. Las 2 divisiones iniciales reparten army/tanks/planes totales
+del país en proporciones 60/40 (tropas) y 30/70 (vehículos).
 
 ## Mecánicas
 - **Economía**: ingreso = production × (0.6 + stability/250) × (1 + development*0.05) + bonus comercio.

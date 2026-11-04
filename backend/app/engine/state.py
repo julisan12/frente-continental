@@ -320,28 +320,52 @@ def _initial_relations(game: Game, rng: PortableRandom) -> None:
 
 def _make_country(c: Dict[str, Any]) -> Dict[str, Any]:
     p = c["power"]
-    return {
-        "id": c["id"], "name": c["name"], "owner": c["id"],
-        "money": float(p * C.START_MONEY), "industry": float(p * C.START_INDUSTRY),
-        "production": float(p * C.START_PRODUCTION), "army": 0.0, "tanks": 0.0, "planes": 0.0,
-        "stability": float(C.START_STABILITY), "development": round(1 + p * 0.25, 2),
-        "population": float(C.POP_OVERRIDE.get(c["id"], p * C.START_POP_FACTOR)),
-        "infrastructure": float(30 + p * 4),
-        "budget": {"army": 25, "social": 25, "infrastructure": 25, "industry": 25},
-        "alignment": c["alignment"], "resources": list(c.get("resources", [])),
-    }
+    # Si existe campo "start", usar valores explícitos; si no, fórmula por power (compatibilidad)
+    if "start" in c:
+        s = c["start"]
+        return {
+            "id": c["id"], "name": c["name"], "owner": c["id"],
+            "money": float(s["money"]), "industry": float(s["industry"]),
+            "production": float(s["production"]), "army": 0.0, "tanks": 0.0, "planes": 0.0,
+            "stability": float(s["stability"]), "development": float(s["development"]),
+            "population": float(s["population"]),
+            "infrastructure": float(s["infrastructure"]),
+            "budget": {"army": 25, "social": 25, "infrastructure": 25, "industry": 25},
+            "alignment": c["alignment"], "resources": list(c.get("resources", [])),
+        }
+    else:
+        return {
+            "id": c["id"], "name": c["name"], "owner": c["id"],
+            "money": float(p * C.START_MONEY), "industry": float(p * C.START_INDUSTRY),
+            "production": float(p * C.START_PRODUCTION), "army": 0.0, "tanks": 0.0, "planes": 0.0,
+            "stability": float(C.START_STABILITY), "development": round(1 + p * 0.25, 2),
+            "population": float(C.POP_OVERRIDE.get(c["id"], p * C.START_POP_FACTOR)),
+            "infrastructure": float(30 + p * 4),
+            "budget": {"army": 25, "social": 25, "infrastructure": 25, "industry": 25},
+            "alignment": c["alignment"], "resources": list(c.get("resources", [])),
+        }
 
 
 def _spawn_divisions(game: Game) -> None:
     for c in load_countries():
         p = c["power"]
         cid = c["id"]
+        # Si existe campo "start", usar valores explícitos; si no, fórmula por power
+        if "start" in c:
+            s = c["start"]
+            army_total = s["army"]
+            tanks_total = s["tanks"]
+            planes_total = s["planes"]
+        else:
+            army_total = p * C.START_ARMY
+            tanks_total = p * C.START_TANKS
+            planes_total = p * C.START_PLANES
         first = "Infantería Motorizada" if p >= 5 else "Infantería"
         second = ["Blindada", "Mecanizada", "Aerotransportada", "de Caballería Blindada"][p % 4]
-        add_division(game, cid, cid, f"1ª División de {first}", p * C.START_ARMY * 0.6,
-                     p * C.START_TANKS * 0.3, p * C.START_PLANES * 0.3, "defend")
-        add_division(game, cid, cid, f"2ª División {second}", p * C.START_ARMY * 0.4,
-                     p * C.START_TANKS * 0.7, p * C.START_PLANES * 0.7, "idle")
+        add_division(game, cid, cid, f"1ª División de {first}", army_total * 0.6,
+                     tanks_total * 0.3, planes_total * 0.3, "defend")
+        add_division(game, cid, cid, f"2ª División {second}", army_total * 0.4,
+                     tanks_total * 0.7, planes_total * 0.7, "idle")
 
 
 def new_game(player: str, seed: Optional[int] = None, game_id: Optional[str] = None) -> Game:

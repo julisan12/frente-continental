@@ -352,28 +352,55 @@ export function _initial_relations(game, rng) {
 
 export function _make_country(c) {
   const p = c.power;
-  return {
-    id: c.id, name: c.name, owner: c.id,
-    money: p * C.START_MONEY, industry: p * C.START_INDUSTRY,
-    production: p * C.START_PRODUCTION, army: 0.0, tanks: 0.0, planes: 0.0,
-    stability: C.START_STABILITY, development: pyRound(1 + p * 0.25, 2),
-    population: (c.id in C.POP_OVERRIDE) ? C.POP_OVERRIDE[c.id] : p * C.START_POP_FACTOR,
-    infrastructure: 30 + p * 4,
-    budget: { army: 25, social: 25, infrastructure: 25, industry: 25 },
-    alignment: c.alignment, resources: Array.from(c.resources || []),
-  };
+  // Si existe campo "start", usar valores explícitos; si no, fórmula por power (compatibilidad)
+  if ('start' in c && c.start) {
+    const s = c.start;
+    return {
+      id: c.id, name: c.name, owner: c.id,
+      money: Number(s.money), industry: Number(s.industry),
+      production: Number(s.production), army: 0.0, tanks: 0.0, planes: 0.0,
+      stability: Number(s.stability), development: Number(s.development),
+      population: Number(s.population),
+      infrastructure: Number(s.infrastructure),
+      budget: { army: 25, social: 25, infrastructure: 25, industry: 25 },
+      alignment: c.alignment, resources: Array.from(c.resources || []),
+    };
+  } else {
+    return {
+      id: c.id, name: c.name, owner: c.id,
+      money: p * C.START_MONEY, industry: p * C.START_INDUSTRY,
+      production: p * C.START_PRODUCTION, army: 0.0, tanks: 0.0, planes: 0.0,
+      stability: C.START_STABILITY, development: pyRound(1 + p * 0.25, 2),
+      population: (c.id in C.POP_OVERRIDE) ? C.POP_OVERRIDE[c.id] : p * C.START_POP_FACTOR,
+      infrastructure: 30 + p * 4,
+      budget: { army: 25, social: 25, infrastructure: 25, industry: 25 },
+      alignment: c.alignment, resources: Array.from(c.resources || []),
+    };
+  }
 }
 
 export function _spawn_divisions(game) {
   for (const c of load_countries()) {
     const p = c.power;
     const cid = c.id;
+    // Si existe campo "start", usar valores explícitos; si no, fórmula por power
+    let army_total, tanks_total, planes_total;
+    if ('start' in c && c.start) {
+      const s = c.start;
+      army_total = Number(s.army);
+      tanks_total = Number(s.tanks);
+      planes_total = Number(s.planes);
+    } else {
+      army_total = p * C.START_ARMY;
+      tanks_total = p * C.START_TANKS;
+      planes_total = p * C.START_PLANES;
+    }
     const first = p >= 5 ? 'Infantería Motorizada' : 'Infantería';
     const second = ['Blindada', 'Mecanizada', 'Aerotransportada', 'de Caballería Blindada'][pymod(p, 4)];
-    add_division(game, cid, cid, `1ª División de ${first}`, p * C.START_ARMY * 0.6,
-      p * C.START_TANKS * 0.3, p * C.START_PLANES * 0.3, 'defend');
-    add_division(game, cid, cid, `2ª División ${second}`, p * C.START_ARMY * 0.4,
-      p * C.START_TANKS * 0.7, p * C.START_PLANES * 0.7, 'idle');
+    add_division(game, cid, cid, `1ª División de ${first}`, army_total * 0.6,
+      tanks_total * 0.3, planes_total * 0.3, 'defend');
+    add_division(game, cid, cid, `2ª División ${second}`, army_total * 0.4,
+      tanks_total * 0.7, planes_total * 0.7, 'idle');
   }
 }
 

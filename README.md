@@ -138,6 +138,10 @@ Tanda 3 (unidades, edificios y mapa limpio; módulos `engine/roster.js`, `engine
   hospital y radar (a una provincia de otro país como mínimo). Cola de producción por provincia con tiempo reducido por taller.
 - **Aviación, drones, misiles y marina**: radio limitado desde la base, estado de «recarga» tras cada incursión, aeronaves perdidas si se
   pierde su base, drones de un solo uso (explorador, kamikaze, señuelo), radar que detecta y reduce el daño, curación en hospital, puerto y aeropuerto.
+- **IA y balance**: la IA investiga con objetivos (hacia tanques medios/pesados, aviación, misiles y marina), construye laboratorio central, taller,
+  aeropuerto y puerto, recluta por cuotas de composición y usa drones exploradores y señuelos en guerra; con tesoro por encima de una reserva
+  gasta en obras extra. El botín de provincia saca un 3 % del tesoro del perdedor (techo de 60 → 600 M) y limita la requisa de recursos.
+  La investigación base sube a 0,24 puntos por turno. Seleccion de ojivas (convencional/química/nuclear con confirmación) en los ataques.
 - **Mapa limpio**: relleno plano por país sin relieve, ruido ni líneas discontinuas; tropas ocultas en Recursos y visibles en Político y Guerra;
   modo Político: verde = paz o tratados, azul = coalición o aliados, gris = neutros, rojo = enemigos, dorado = el jugador.
 - **Aspecto**: paleta oliva/caqui/latón con camuflaje vectorial, ilustraciones nuevas de edificios y unidades.

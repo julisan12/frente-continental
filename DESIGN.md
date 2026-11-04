@@ -119,6 +119,9 @@ del país en proporciones 60/40 (tropas) y 30/70 (vehículos).
   por nivel; `on_prov_lost` reubica o pierde aeronaves.
 - **Mapa**: `ui/mapfx.js` pinta relleno plano por país y solo muestra unidades en Político y Guerra; colores políticos por relación
   (paz/pactos verde, alianza/bloque azul, neutro gris, guerra rojo, jugador dorado).
+- **IA (ajustes)**: `_ai_pick_tech` pondera la cadena de objetivos `AI_TECH_GOALS` (×`AI_RESEARCH_MULT` 1,4 de ritmo); `_ai_infra` y `_ai_recruit`
+  (cuotas `AI_SHARE`) en `units.js`; `ai_build(rich)` en `provinces.js` añade hasta 3 obras/turno con caja sobre `350 + 6·turno`; `aero.turn` consume
+  drones `dexp`/`dsen` de cualquier país (`ext.aero.drone_uses`). Botín: `LOOT_MONEY_MAX` 60, `LOOT_RES_MAX` 80, 3 % del tesoro; `research_rate` base 0,24.
 - **Cabecera**: `fmtCompact` (`js/util.js`); `ui/ticker.js` solo muestra noticias; `ui/tasks.js` es la pantalla «Por mi cuenta» (barra inferior).
 
 ## API REST (prefijo /api)

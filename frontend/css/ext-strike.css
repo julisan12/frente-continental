@@ -1,1 +1,14 @@
 /* Tanda 3: incursiones y bombardeos (trabajador C) */
+.strike-box, .strike-panel { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.strike-h { font-family: var(--font-head, serif); color: var(--gold, #d3b160); font-size: 14px; letter-spacing: .04em; }
+.strike-caps { color: var(--muted, #9a9d8a); font-size: 12px; }
+.strike-btn { justify-content: flex-start; text-align: left; min-height: 44px; width: 100%; }
+.strike-txt { display: flex; flex-direction: column; line-height: 1.25; }
+.strike-txt small, .strike-info small { color: var(--muted, #9a9d8a); font-size: 11px; }
+.strike-wait { opacity: .5; }
+.strike-unit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line, #454a36); border-radius: 8px; background: var(--panel2, #282b21); }
+.strike-unit.strike-warn { border-color: var(--rust, #9a4a42); }
+.strike-info { display: flex; flex-direction: column; flex: 1 1 140px; min-width: 0; }
+.strike-acts, .strike-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; width: 100%; }
+.strike-sel { min-height: 44px; flex: 1 1 120px; background: var(--panel3, #30342a); color: var(--text, #d6d5c4); border: 1px solid var(--brass-dim, #6f5d3b); border-radius: 8px; padding: 0 8px; }
+.strike-acts .btn, .strike-row .btn { min-height: 44px; }

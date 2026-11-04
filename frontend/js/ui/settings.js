@@ -9,8 +9,25 @@ const MODES = [
   ['server', 'Servidor', 'Se conecta a un servidor Python (backend). Necesita la URL del servidor.'],
 ];
 
+const toggle = (label, help, checked, onchange) => h('label', { class: 'row', style: { alignItems: 'flex-start', gap: '8px' } },
+  h('input', { type: 'checkbox', checked, 'aria-label': label, onchange: (e) => onchange(e.target.checked) }),
+  h('span', { class: 'stack', style: { gap: '2px' } }, h('span', null, label), h('span', { class: 'muted small' }, help)));
+
+/** Interruptores rapidos: sonido y modo daltonico (reutilizables en el cajon del mapa). */
+export function quickToggles() {
+  return h('div', { class: 'stack' },
+    toggle('Sonido', 'Efectos sonoros sintetizados.', soundOn(), (on) => { setSound(on); if (on) play('click', true); }),
+    toggle('Modo daltónico', 'Paleta con mayor contraste entre colores.', lsGet('fc.cb') === '1', (on) => {
+      if (on) lsSet('fc.cb', '1'); else lsDel('fc.cb');
+      try { if (on) document.documentElement.dataset.cb = '1'; else delete document.documentElement.dataset.cb; } catch (e) { /* ignore */ }
+    }));
+}
+
 /** Formulario de modo + servidor. onDone(ok) se llama al guardar (ok = true si el modo elegido está listo). */
-export function settingsForm(onDone) {
+export function settingsForm(onDone) { return modeForm(onDone, true); }
+
+/** Bloque de modo de juego/servidor; con withToggles incluye los interruptores rapidos (formulario completo). */
+export function modeForm(onDone, withToggles = false) {
   let mode = getMode();
   const input = h('input', { class: 'field', type: 'url', placeholder: 'http://10.0.2.2:8000', value: getServer() || '', 'aria-label': 'URL del servidor', autocomplete: 'off' });
   const out = h('div', { class: 'muted small', role: 'status' });
@@ -60,18 +77,8 @@ export function settingsForm(onDone) {
     }
   };
 
-  const toggle = (label, help, checked, onchange) => h('label', { class: 'row', style: { alignItems: 'flex-start', gap: '8px' } },
-    h('input', { type: 'checkbox', checked, 'aria-label': label, onchange: (e) => onchange(e.target.checked) }),
-    h('span', { class: 'stack', style: { gap: '2px' } }, h('span', null, label), h('span', { class: 'muted small' }, help)));
-  const extras = h('div', { class: 'stack' },
-    toggle('Sonido', 'Efectos sonoros sintetizados.', soundOn(), (on) => { setSound(on); if (on) play('click', true); }),
-    toggle('Modo daltónico', 'Paleta con mayor contraste entre colores.', lsGet('fc.cb') === '1', (on) => {
-      if (on) lsSet('fc.cb', '1'); else lsDel('fc.cb');
-      try { if (on) document.documentElement.dataset.cb = '1'; else delete document.documentElement.dataset.cb; } catch (e) { /* ignore */ }
-    }));
-
   return h('div', { class: 'stack' },
-    extras,
+    withToggles ? quickToggles() : null,
     h('label', { class: 'small muted' }, 'Modo de juego'),
     h('div', { class: 'stack' }, radios),
     serverBox,

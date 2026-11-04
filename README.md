@@ -76,4 +76,23 @@ Capa de sistemas adicionales (`frontend/js/engine/features.js`), que no altera e
 - **Mercado**: precios de materias primas con evolución mensual y noticias.
 - **Logros e índice de poder** con historial.
 
+Tanda 1 (dinámica y profundidad; módulos `engine/provinces.js`, `engine/units.js`, `engine/supply.js`, UI en `ui/`):
+
+- **Arranque rebalanceado (1962)**: cada país trae valores explícitos (`start` en `data/countries.json`): dinero, industria,
+  producción, ejército, estabilidad, desarrollo e infraestructura variados y realistas; ningún país empieza al máximo en todo.
+- **Modos de mapa**: Relaciones (azul yo, verde aliados/bloque, rojo guerra, gris neutro), Recursos (insignias de recursos y
+  edificios solo aquí), Guerra (ocupación y unidades visibles) y Político (degradado verde→rojo según la relación).
+- **Infraestructura provincial**: laboratorios (investigación), carreteras y ferrocarril (organización y logística de ataque,
+  ingresos), fortalezas y líneas defensivas (defensa provincial y del país). Panel de acciones por provincia: construir,
+  infraestructura, reclutar unidades allí y atacar.
+- **Unidades especializadas** (infantería, motorizada, blindados, artillería, montaña, marina, aviación, fuerzas especiales)
+  con icono propio, desbloqueo por tecnología, coste en dinero y recursos, ventajas/desventajas por terreno y emparejamiento,
+  **formaciones** (órdenes en grupo, bono de armas combinadas), **botín de guerra** y **descontento** en provincias
+  ocupadas (revueltas si se descuida la guarnición).
+- **Suministro**: la población, la industria y el ejército consumen alimentos, combustible, bienes y metal producidos por las
+  provincias; la escasez penaliza (estabilidad, organización, industria) y la producción militar exige existencias. Mercado
+  con precios según escasez e intercambio con otros países: el dinero por sí solo ya no basta.
+- **Carrusel de noticias** tipo noticiero en la cabecera: decisiones pendientes y últimas noticias, con acceso directo a la
+  pantalla correspondiente.
+
 Estos sistemas funcionan solo en modo local (sin conexión). Con el servidor Python se muestra un aviso de que no están disponibles.

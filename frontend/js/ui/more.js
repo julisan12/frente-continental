@@ -8,6 +8,7 @@ import { newGameFlow } from './modals.js';
 import { settingsForm } from './settings.js';
 import { lsGet, lsSet } from './sound.js';
 import { showTutorial } from './tutorial.js';
+import { openQuickSettings } from './map.js';
 
 // features.js lo crea otro agente: carga dinámica para no romper el enlazado de módulos.
 let F = {};
@@ -231,7 +232,9 @@ export function render(el) {
         h('h3', { class: 'tag-uc' }, 'Ranking'),
         g.ranking.map((r, i) => h('div', { class: 'small', style: { display: 'flex', justifyContent: 'space-between', color: r.id === g.player ? 'var(--brass)' : 'inherit' } }, h('span', null, `${i + 1}. ${r.name}`), h('span', null, String(r.score))))) : null,
       h('button', { class: 'btn block danger', onclick: () => newGameFlow(false) }, icon('flag'), 'Nueva partida'));
-  } else if (tab === 'set') body = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Ajustes'), settingsForm((ok, changed) => { if (ok && changed) location.reload(); }));
+  } else if (tab === 'set') body = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Ajustes'),
+    h('button', { class: 'btn block', onclick: () => { setState({ screen: 'map' }); openQuickSettings(); } }, icon('settings'), 'Ajustes rápidos (cajón del mapa)'),
+    settingsForm((ok, changed) => { if (ok && changed) location.reload(); }));
   else body = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Reglas'),
     HELP.map(([t, x]) => h('details', null, h('summary', null, t), h('p', { class: 'helptxt' }, x))));
   el.append(h('h2', null, 'Más'), tabs, body);

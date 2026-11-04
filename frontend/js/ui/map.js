@@ -3,9 +3,13 @@ import { showNews } from './more.js';
 import { h, svgEl, clamp } from '../util.js';
 import { icon } from '../icons.js';
 import { getState, setState, subscribe, player, ownerOf, isAllied, isAtWar, relation } from '../state.js';
-import { countryPanel, countryButtons } from './country.js';
+import { countryPanel, countryButtons, statusPills } from './country.js';
 import * as F from '../engine/features.js';
 import * as FX from './mapfx.js';
+import * as P from '../engine/provinces.js';
+import { lsGet, lsSet } from './sound.js';
+import { openDrawer, closeDrawer } from './drawer.js';
+import { quickToggles } from './settings.js';
 
 // Tanda 2: el viewBox lo da el mapa (S.map.viewBox: 'x y w h'); 'sur' = solo America del Sur.
 const VB = { x: 0, y: 0, w: 500, h: 535 };
@@ -16,9 +20,13 @@ function setVB(str) {
   if (svg) svg.setAttribute('viewBox', `${VB.x} ${VB.y} ${VB.w} ${VB.h}`);
 }
 const KM_PER_UNIT = 14;
-let stage, svg, world, sheet, evBox, scaleLn, scaleTxt, geo = {}, built = null;
+let root, stage, svg, world, sheet, evBox, gearBtn, modeToggle, infoBtn, scaleLn, scaleTxt, geo = {}, built = null;
 let view = { k: 1, x: 0, y: 0 }, k0 = 1, minK = 0.5, maxK = 14;
-let sheetMin = false;
+// Hoja inferior: 'peek' (compacta) | 'half' | 'full'. sheetMin se conserva solo por compatibilidad (= peek).
+let sheetSt = 'peek', sheetOpen = false, lastTap = 0, lastEnsure = '';
+const sheetMin = () => sheetSt === 'peek';
+const defaultSheet = () => (lsGet('fc.sheet') === 'half' ? 'half' : 'peek');
+let popOpen = false, legendOpen = false;
 const pts = new Map();
 
 // ---- Modos de mapa ----
@@ -82,16 +90,26 @@ function setMode(m) {
   try { localStorage.setItem('fc.mapmode', m); } catch (e) { /* sin LS */ }
   colorize(); renderModes();
 }
+function syncPop() {
+  if (!modeBox) return;
+  modeBox.classList.toggle('open', popOpen);
+  legendBox.style.display = popOpen || legendOpen ? '' : 'none';
+  modeToggle.setAttribute('aria-expanded', String(popOpen));
+  infoBtn.setAttribute('aria-pressed', String(legendOpen));
+}
+function closePop() { if (popOpen) { popOpen = false; syncPop(); } }
 function renderModes() {
   if (!modeBox) return;
+  const cur = MODES.find((m) => m[0] === mode) || MODES[0];
+  modeToggle.replaceChildren(h('span', { class: 'mm-l' }, cur[1]), h('span', { class: 'mm-c', 'aria-hidden': 'true' }, '▾'));
   modeBox.replaceChildren(...MODES.map(([id, label]) =>
-    h('button', { 'aria-pressed': String(mode === id), onclick: () => setMode(id) }, label)));
+    h('button', { 'aria-pressed': String(mode === id), onclick: () => { popOpen = false; setMode(id); } }, label)));
   renderLegend();
+  syncPop();
 }
 function renderLegend() {
   if (!legendBox) return;
   legendBox.replaceChildren();
-  legendBox.style.display = '';
   const sw = (col, t) => h('div', { class: 'sw' }, h('i', { style: { background: col } }), t);
   const grad = (a, b, mid) => h('div', { class: 'grad', style: { background: `linear-gradient(90deg,${a}${mid ? ',' + mid : ''},${b})` } });
   if (mode === 'rel') {
@@ -265,16 +283,105 @@ function colorize() {
   apply();
 }
 
+// Altura (px) de la hoja en cada estado; --sheet-h desplaza botones, rosa y escala.
+function sheetPx(st) {
+  const H = (stage && stage.clientHeight) || 600;
+  return st === 'peek' ? 124 : Math.round(H * (st === 'half' ? 0.48 : 0.88));
+}
+function setSheetVars(open) {
+  if (!root) return;
+  root.style.setProperty('--sheet-h', open ? sheetPx(sheetSt) + 'px' : '0px');
+  root.dataset.sheet = open ? sheetSt : 'none';
+}
+function setSheet(st) {
+  if (st === sheetSt) return;
+  sheetSt = st;
+  renderSheet();
+}
+function provLine(g) {
+  const pid = FX.selectedProv();
+  if (!pid) return null;
+  try {
+    const gp = P.prov_geo().byId[pid];
+    const r = g.ext && g.ext.prov && g.ext.prov[pid] && g.ext.prov[pid].r;
+    const rn = r && P.RES && P.RES[r] ? P.RES[r].name : null;
+    if (!gp) return null;
+    return h('div', { class: 'pline small' }, h('span', { class: 'muted' }, 'Provincia: '), h('b', null, gp.n), rn ? h('span', { class: 'muted' }, ' · ' + rn) : null);
+  } catch (e) { return null; }
+}
+function bindGrab(btn) {
+  let y0 = null, moved = false;
+  btn.addEventListener('pointerdown', (e) => { y0 = e.clientY; moved = false; try { btn.setPointerCapture(e.pointerId); } catch (err) { /* */ } });
+  btn.addEventListener('pointermove', (e) => { if (y0 != null && Math.abs(e.clientY - y0) > 8) moved = true; });
+  const end = (e) => {
+    if (y0 == null) return;
+    const dy = e.clientY - y0; y0 = null;
+    const order = ['peek', 'half', 'full'], i = order.indexOf(sheetSt);
+    if (moved && e.type === 'pointerup') {
+      if (dy < -30) setSheet(order[Math.min(2, i + 1)]);
+      else if (dy > 30) setSheet(order[Math.max(0, i - 1)]);
+    } else if (!moved && e.type === 'pointerup') {
+      const now = Date.now();
+      if (now - lastTap < 320) { lastTap = 0; setSheet('full'); }
+      else { lastTap = now; setSheet(sheetSt === 'peek' ? 'half' : 'peek'); }
+    }
+  };
+  btn.addEventListener('pointerup', end);
+  btn.addEventListener('pointercancel', end);
+  btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSheet(sheetSt === 'peek' ? 'half' : 'peek'); } });
+}
+function closeSheet() { FX.selectProv(null); setState({ selected: null }); }
 function renderSheet() {
   const S = getState();
-  sheet.replaceChildren();
-  if (!S.selected || !S.game) { sheet.style.display = 'none'; return; }
+  const prev = sheet.querySelector('.body');
+  const top = prev ? prev.scrollTop : 0;
+  if (!S.selected || !S.game) {
+    sheet.replaceChildren(); sheet.style.display = 'none'; sheetOpen = false; lastEnsure = '';
+    setSheetVars(false);
+    return;
+  }
+  if (!sheetOpen) { sheetOpen = true; sheetSt = defaultSheet(); }
   sheet.style.display = '';
-  sheet.classList.toggle('min', sheetMin);
-  sheet.append(
-    h('button', { class: 'grab', 'aria-label': sheetMin ? 'Expandir ficha' : 'Contraer ficha', onclick: () => { sheetMin = !sheetMin; renderSheet(); } }),
-    h('div', { class: 'body' }, countryPanel(S.selected), FX.provPanel(), h('div', { class: 'btns' }, countryButtons(S.selected),
-      h('button', { class: 'btn sm', onclick: () => setState({ selected: null }) }, icon('close'), 'Cerrar'))));
+  sheet.dataset.st = sheetSt;
+  sheet.classList.toggle('min', sheetMin());
+  setSheetVars(true);
+  const g = S.game, cid = S.selected, me = player();
+  const grab = h('button', { class: 'grab', 'aria-label': sheetSt === 'peek' ? 'Expandir ficha' : 'Contraer ficha', 'aria-expanded': String(sheetSt !== 'peek') });
+  bindGrab(grab);
+  const closeBtn = h('button', { class: 'btn sm', onclick: closeSheet }, icon('close'), 'Cerrar');
+  let content;
+  if (sheetSt === 'peek') {
+    const m = S.mapById[cid];
+    const diplo = ownerOf(cid) !== me ? h('button', { class: 'btn sm', onclick: () => setState({ diploTarget: ownerOf(cid), screen: 'diplomacy' }) }, icon('rings'), 'Diplomacia') : null;
+    content = h('div', { class: 'peek' },
+      h('div', { class: 'row pk-top' }, h('b', { class: 'grow pk-name' }, m ? m.name : cid), statusPills(cid)),
+      provLine(g),
+      h('div', { class: 'btns' }, h('button', { class: 'btn sm', onclick: () => setSheet('half') }, icon('up'), 'Acciones'), diplo, closeBtn));
+  } else {
+    content = h('div', { class: 'body' }, countryPanel(cid), FX.provPanel(), h('div', { class: 'btns' }, countryButtons(cid), closeBtn));
+  }
+  sheet.replaceChildren(grab, content);
+  const nb = sheet.querySelector('.body');
+  if (nb) nb.scrollTop = top;
+  ensureVisible(cid);
+}
+// Si la hoja tapa el centroide del pais seleccionado, desplaza la vista (solo al cambiar seleccion/estado).
+function ensureVisible(cid) {
+  const key = cid + '|' + sheetSt;
+  if (key === lastEnsure) return;
+  lastEnsure = key;
+  const g = geo[cid];
+  if (!g || !stage) return;
+  rectC = null;
+  const r = sRect(), s = rate();
+  if (!r.height || !s) return;
+  const oy = (r.height - VB.h * s) / 2;
+  const sy = (g.cy * view.k + view.y - VB.y) * s + oy;
+  const free = r.height - sheetPx(sheetSt);
+  if (sy > free - 28 || sy < 20) {
+    view.y += (Math.max(40, free * 0.45) - sy) / s;
+    clampPan(); apply();
+  }
 }
 
 function renderEvent() {
@@ -290,7 +397,6 @@ function onTap(e) {
   const t = e.target.closest && e.target.closest('[data-id]');
   const S = getState();
   if (t) {
-    sheetMin = false;
     if (e.clientX != null) {
       try {
         const p = toLocal(e.clientX, e.clientY);
@@ -299,13 +405,15 @@ function onTap(e) {
     }
     setState({ selected: t.dataset.id });
   }
-  else if (S.selected) { FX.selectProv(null); setState({ selected: null }); }
+  else if (S.selected) { closeSheet(); }
+  closePop();
 }
 
 function bindGestures() {
   const ptr = new Map();
   let start = null, moved = false, pinch = null;
   stage.addEventListener('pointerdown', (e) => {
+    closePop();
     stage.setPointerCapture(e.pointerId);
     ptr.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (ptr.size === 1) { start = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, target: e.target }; moved = false; }
@@ -346,14 +454,41 @@ function bindGestures() {
 
 function btn(label, ic, fn) { return h('button', { class: 'iconbtn', 'aria-label': label, title: label, onclick: fn }, icon(ic)); }
 
+// ---- Cajon de ajustes rapidos ----
+function quickBody() {
+  const sw = (label, help, checked, fn) => h('label', { class: 'row', style: { alignItems: 'flex-start', gap: '8px' } },
+    h('input', { type: 'checkbox', checked, 'aria-label': label, onchange: (e) => fn(e.target.checked) }),
+    h('span', { class: 'stack', style: { gap: '2px' } }, h('span', null, label), h('span', { class: 'muted small' }, help)));
+  const group = (items, cur, pick) => {
+    const box = h('div', { class: 'dgroup', role: 'group' });
+    const paint = () => box.replaceChildren(...items.map(([id, l]) =>
+      h('button', { class: 'btn sm' + (cur() === id ? ' sel' : ''), 'aria-pressed': String(cur() === id), onclick: () => { pick(id); paint(); } }, l)));
+    paint();
+    return box;
+  };
+  return h('div', { class: 'stack' },
+    quickToggles(),
+    sw('Texturas y provincias', 'Capa de provincias, relieve e iconos sobre el mapa.', FX.isEnabled(), (on) => FX.setEnabled(on)),
+    h('div', { class: 'small muted' }, 'Modo de mapa'),
+    group(MODES, () => mode, (id) => setMode(id)),
+    h('div', { class: 'small muted' }, 'Tamaño de la hoja por defecto'),
+    group([['peek', 'Compacta'], ['half', 'Media']], defaultSheet, (id) => lsSet('fc.sheet', id)),
+    h('button', { class: 'btn block', onclick: () => { closeDrawer(); centerOn(player()); } }, icon('target'), 'Centrar en mi país'),
+    h('button', { class: 'btn block', onclick: () => { closeDrawer(); fit(); } }, icon('globe'), 'Ver todo el mapa'),
+    h('button', { class: 'btn block', onclick: () => { closeDrawer(); setState({ screen: 'more' }); } }, icon('menu'), 'Más → Ajustes (modo de juego y servidor)'));
+}
+export function openQuickSettings() { return openDrawer({ title: 'Ajustes rápidos', body: quickBody(), side: 'right' }); }
+
 export function mount(container) {
+  root = container;
   stage = h('div', { class: 'map-stage' });
   svg = svgEl('svg', { viewBox: `${VB.x} ${VB.y} ${VB.w} ${VB.h}`, preserveAspectRatio: 'xMidYMid meet', role: 'img', 'aria-label': 'Mapa político de América Latina', width: '100%', height: '100%' });
   stage.append(svg);
   scaleLn = h('div', { class: 'ln' });
   scaleTxt = h('span', null, '');
-  evBox = h('div', { class: 'evbox', style: { position: 'absolute', top: '8px', right: '8px', zIndex: 3 } });
-  sheet = h('div', { class: 'sheet', style: { display: 'none', touchAction: 'pan-y' } });
+  evBox = h('div', { class: 'evbox' });
+  gearBtn = h('button', { class: 'iconbtn mapgear', 'aria-label': 'Ajustes rápidos', title: 'Ajustes rápidos', onclick: () => { closePop(); openQuickSettings(); } }, icon('settings'));
+  sheet = h('div', { class: 'sheet', style: { display: 'none' } });
   const compass = h('div', { class: 'compass', 'aria-hidden': 'true', html:
     '<svg viewBox="-20 -20 40 40" width="46" height="46"><circle r="17" fill="rgba(7,13,24,.7)" stroke="#b8975a" stroke-width="1"/><path d="M0 -16 L4 0 L0 16 L-4 0Z" fill="#b8975a"/><path d="M-16 0 L0 -3 L16 0 L0 3Z" fill="#7d6a42"/><text y="-19" text-anchor="middle" font-size="7" fill="#e3c985" font-family="serif">N</text></svg>' });
   const bar = h('div', { class: 'scalebar', 'aria-hidden': 'true' }, scaleLn, scaleTxt);
@@ -363,11 +498,16 @@ export function mount(container) {
     btn('Centrar en mi país', 'target', () => centerOn(player())),
     btn('Texturas y provincias', 'map', () => FX.setEnabled(!FX.isEnabled())),
     btn('Ver todo el mapa', 'globe', fit));
+  modeToggle = h('button', { class: 'mapmode-toggle', 'aria-haspopup': 'true', 'aria-expanded': 'false', 'aria-label': 'Modo de mapa', onclick: () => { popOpen = !popOpen; syncPop(); } });
+  infoBtn = h('button', { class: 'mapinfo', 'aria-label': 'Leyenda', 'aria-pressed': 'false', onclick: () => { legendOpen = !legendOpen; syncPop(); } }, 'i');
   modeBox = h('div', { class: 'mapmodes', role: 'group', 'aria-label': 'Modo de mapa' });
   legendBox = h('div', { class: 'maplegend', 'aria-hidden': 'true', style: { display: 'none' } });
-  container.append(stage, compass, bar, btns, h('div', { class: 'mapctl' }, modeBox, legendBox), evBox, sheet);
+  container.append(stage, compass, bar, btns,
+    h('div', { class: 'mapctl' }, h('div', { class: 'mapbar' }, modeToggle, infoBtn), modeBox, legendBox),
+    h('div', { class: 'maptr' }, evBox, gearBtn), sheet);
+  container.style.setProperty('--sheet-h', '0px');
   bindGestures();
-  new ResizeObserver(() => { rectC = null; apply(); }).observe(stage);
+  new ResizeObserver(() => { rectC = null; apply(); if (sheetOpen) setSheetVars(true); }).observe(stage);
   addEventListener('scroll', () => { rectC = null; }, { passive: true });
 }
 

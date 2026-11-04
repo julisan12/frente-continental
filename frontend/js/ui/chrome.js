@@ -103,16 +103,26 @@ function countDecisionsByScreen(g) {
 export function renderNav(el) {
   const S = getState();
   const counts = countDecisionsByScreen(S.game);
-  el.replaceChildren(...NAV.map(([id, ic, label]) => {
-    let badge = null;
-    if (id === 'more' && S.game && S.game.active_event) {
-      badge = h('span', { class: 'badge', 'aria-hidden': 'true' }, '!');
-    } else if (counts[id] > 0) {
-      const cnt = Math.min(counts[id], 9);
-      badge = h('span', { class: 'badge num', 'aria-hidden': 'true' }, String(cnt));
-    }
-    return h('button', { 'aria-label': label, 'aria-current': S.screen === id ? 'page' : null, onclick: () => go(id) }, icon(ic), h('span', null, label), badge);
-  }));
+  const badgeOf = (id) => {
+    if (id === 'more' && S.game && S.game.active_event) return ['!', ''];
+    if (counts[id] > 0) return [String(Math.min(counts[id], 9)), ' num'];
+    return null;
+  };
+  // Reutiliza los 6 botones: solo se actualizan atributos y la insignia (sin parpadeo ni saltos).
+  if (el.children.length !== NAV.length) {
+    el.replaceChildren(...NAV.map(([id, ic, label]) => h('button', { 'data-nav': id, 'aria-label': label, onclick: () => go(id) },
+      icon(ic), h('span', { class: 'nl' }, label))));
+  }
+  NAV.forEach(([id], i) => {
+    const b = el.children[i];
+    if (S.screen === id) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    const bd = badgeOf(id);
+    let sp = b.querySelector('.badge');
+    if (!bd) { if (sp) sp.remove(); return; }
+    if (!sp) { sp = h('span', { 'aria-hidden': 'true' }); b.append(sp); }
+    sp.className = 'badge' + bd[1];
+    if (sp.textContent !== bd[0]) sp.textContent = bd[0];
+  });
 }
 
 let ending = false; // evita dobles toques: una sola confirmación/turno a la vez

@@ -9,11 +9,13 @@
   --mm-seq-a:#440154; --mm-seq-b:#fde725;
   --mm-ally:#1f77d4; --mm-war:#e8710a;
 }
-.mapmodes{position:absolute;left:8px;top:8px;z-index:3;display:flex;gap:2px;flex-wrap:wrap;max-width:calc(100% - 150px);
+.mapctl{position:absolute;left:8px;top:8px;z-index:3;display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:calc(100% - 118px);pointer-events:none}
+.mapctl>*{pointer-events:auto}
+.mapmodes{position:static;display:flex;gap:1px;flex-wrap:wrap;max-width:100%;
   background:rgba(9,18,32,.85);border:1px solid var(--line);border-radius:8px;padding:2px}
-.mapmodes button{border:0;background:transparent;color:var(--muted);font-size:11px;padding:5px 8px;border-radius:6px;min-height:28px}
+.mapmodes button{border:0;background:transparent;color:var(--muted);font-size:10.5px;padding:4px 6px;border-radius:6px;min-height:28px;white-space:nowrap}
 .mapmodes button[aria-pressed="true"]{background:var(--btn-a);color:var(--cream);box-shadow:inset 0 0 0 1px var(--brass-dim)}
-.maplegend{position:absolute;left:8px;top:48px;z-index:2;background:rgba(9,18,32,.85);border:1px solid var(--line);border-radius:8px;
+.maplegend{position:static;background:rgba(9,18,32,.85);border:1px solid var(--line);border-radius:8px;
   padding:6px 8px;font-size:10px;color:var(--cream);pointer-events:none;max-width:170px}
 .maplegend .grad{height:8px;border-radius:4px;margin:3px 0}
 .maplegend .lg{display:flex;justify-content:space-between;gap:8px;color:var(--muted)}

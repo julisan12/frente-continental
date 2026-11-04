@@ -22,10 +22,10 @@ let enabled = true;
 try { enabled = localStorage.getItem(LS) !== '0'; } catch (e) { /* sin storage */ }
 
 let svgR = null, defsR = null, worldR = null, countriesR = [];
-let ocean = null, paint = null, root = null, gOcc = null, gSel = null, gBadge = null, gLbl = null;
+let ocean = null, paint = null, root = null, gOcc = null, gSel = null, gBadge = null, gLbl = null, gUnits = null;
 let bakeCache = null; // { land, sea } blob URLs
-let selPid = null, lastSig = '', zoomCls = '';
-let cellsById = null;
+let selPid = null, lastSig = '', zoomCls = '', currentMode = 'rel';
+let cellsById = null, geoById = {};
 
 export const isEnabled = () => enabled;
 export function setEnabled(v) {
@@ -237,10 +237,13 @@ export function init(svg, defs, world, geo, countries) {
   gSel = svgEl('g', { class: 'fx-selp' });
   gBadge = svgEl('g', { class: 'fxl fx-badges' });
   gLbl = svgEl('g', { class: 'fxl fx-plbl' });
-  root = svgEl('g', { class: 'fx-root' }, gOcc, gSel, gBadge, gLbl);
+  gUnits = svgEl('g', { class: 'fxl fx-units' });
+  root = svgEl('g', { class: 'fx-root' }, gOcc, gSel, gBadge, gLbl, gUnits);
   world.prepend(ocean);
   world.append(paint, root);
   lastSig = ''; zoomCls = '';
+  geoById = {};
+  for (const [cid, g] of Object.entries(geo)) geoById[cid] = g;
   const show = (c) => {
     // oceano: mosaico simple alrededor (el horneado cubre el VB central)
     ocean.setAttribute('href', c.sea); ocean.setAttribute('x', 0); ocean.setAttribute('y', 0); ocean.setAttribute('width', VW); ocean.setAttribute('height', VH);
@@ -258,43 +261,127 @@ export function relColor(o) {
   const S = getState(); return (S.mapById[o] && S.mapById[o].color) || '#777';
 }
 
-function drawLayers(game) {
+function drawLayers(game, S) {
   const pr = game.ext && game.ext.prov; if (!pr || !root) return;
   const cells = provCells(), geo = geoList();
-  // ocupacion
+  const me = game.player;
+
+  // ocupacion (solo visible en modo 'war')
   gOcc.replaceChildren();
-  const byC = {};
-  for (const p of geo) { const s = pr[p.pid]; if (s && s.o !== ownerOf(p.c)) (byC[p.c] = byC[p.c] || []).push([p, s]); }
-  for (const [cid, list] of Object.entries(byC)) {
-    const id = 'fxc-' + cid;
-    if (!defsR.querySelector('#' + CSS.escape(id))) defsR.append(svgEl('clipPath', { id }, svgEl('path', { d: pathOf(cid) })));
-    const g = svgEl('g', { 'clip-path': `url(#${id})` });
-    list.forEach(([p, s]) => g.append(svgEl('path', { d: polyD(cells[p.pid] || []), fill: relColor(s.o), class: 'fx-occp' })));
-    gOcc.append(g);
+  if (currentMode === 'war') {
+    const byC = {};
+    for (const p of geo) { const s = pr[p.pid]; if (s && s.o !== ownerOf(p.c)) (byC[p.c] = byC[p.c] || []).push([p, s]); }
+    for (const [cid, list] of Object.entries(byC)) {
+      const id = 'fxc-' + cid;
+      if (!defsR.querySelector('#' + CSS.escape(id))) defsR.append(svgEl('clipPath', { id }, svgEl('path', { d: pathOf(cid) })));
+      const g = svgEl('g', { 'clip-path': `url(#${id})` });
+      list.forEach(([p, s]) => g.append(svgEl('path', { d: polyD(cells[p.pid] || []), fill: relColor(s.o), class: 'fx-occp' })));
+      gOcc.append(g);
+    }
   }
-  // insignias de recursos y edificios + nombres de provincia
-  gBadge.replaceChildren(); gLbl.replaceChildren();
+
+  // insignias de recursos y edificios (solo visible en modo 'res')
+  gBadge.replaceChildren();
+  if (currentMode === 'res') {
+    for (const p of geo) {
+      const s = pr[p.pid]; if (!s) continue;
+      const items = [];
+      if (s.r && P.RES[s.r]) items.push([P.RES[s.r].icon, RES_COLOR[s.r] || '#555', 0]);
+      for (const [k, lv] of Object.entries(s.b || {})) if (lv > 0 && P.BUILD[k]) items.push([P.BUILD[k].icon, BUILD_COLOR[k] || '#555', lv]);
+      if (s.q) items.push(['crane', '#b8975a', 0]);
+      if (items.length) {
+        const g = svgEl('g', { transform: `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})` });
+        const inner = svgEl('g', { class: 'fx-sc' });
+        items.forEach(([ic, col, lv], i) => {
+          const b = iconG(ic, col, 4.2);
+          b.setAttribute('transform', `translate(${(i - (items.length - 1) / 2) * 9.4} 0)`);
+          if (lv > 1) b.append(svgEl('text', { class: 'fx-lv', x: 3.6, y: -2.6 }, String(lv)));
+          inner.append(b);
+        });
+        g.append(inner); gBadge.append(g);
+      }
+    }
+  }
+
+  // nombres de provincia (siempre)
+  gLbl.replaceChildren();
   for (const p of geo) {
     const s = pr[p.pid]; if (!s) continue;
-    const items = [];
-    if (s.r && P.RES[s.r]) items.push([P.RES[s.r].icon, RES_COLOR[s.r] || '#555', 0]);
-    for (const [k, lv] of Object.entries(s.b || {})) if (lv > 0 && P.BUILD[k]) items.push([P.BUILD[k].icon, BUILD_COLOR[k] || '#555', lv]);
-    if (s.q) items.push(['crane', '#b8975a', 0]);
-    if (items.length) {
-      const g = svgEl('g', { transform: `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})` });
-      const inner = svgEl('g', { class: 'fx-sc' });
-      items.forEach(([ic, col, lv], i) => {
-        const b = iconG(ic, col, 4.2);
-        b.setAttribute('transform', `translate(${(i - (items.length - 1) / 2) * 9.4} 0)`);
-        if (lv > 1) b.append(svgEl('text', { class: 'fx-lv', x: 3.6, y: -2.6 }, String(lv)));
-        inner.append(b);
-      });
-      g.append(inner); gBadge.append(g);
-    }
     gLbl.append(svgEl('g', { transform: `translate(${p.x.toFixed(1)} ${(p.y + 7).toFixed(1)})` },
       svgEl('text', { class: 'fx-pn fx-sc' + (s.cap ? ' cap' : '') }, p.n)));
   }
+
+  // marcadores de unidades (solo visible en modo 'war')
+  gUnits.replaceChildren();
+  if (currentMode === 'war' && game.divisions) {
+    drawUnits(game, S);
+  }
+
   drawSel();
+}
+
+function drawUnits(game, S) {
+  if (!gUnits || !game.divisions) return;
+  const me = game.player;
+
+  // Agrupar divisiones propias y aliadas por país
+  const byCountry = {};
+  for (const d of game.divisions) {
+    const loc = d.location;
+    if (!loc) continue;
+    if (!byCountry[loc]) byCountry[loc] = [];
+    byCountry[loc].push(d);
+  }
+
+  // Dibujar marcadores por país
+  for (const [cid, divs] of Object.entries(byCountry)) {
+    const g = geoById[cid];
+    if (!g) continue;
+
+    // Agrupar por tipo
+    const byType = {};
+    for (const d of divs) {
+      const kind = (typeof UNITS !== 'undefined' && UNITS.kind_of) ? UNITS.kind_of(d) : 'inf';
+      if (!byType[kind]) byType[kind] = 0;
+      byType[kind]++;
+    }
+
+    // Dibujar un icono por tipo con contador
+    const types = Object.keys(byType);
+    types.forEach((kind, i) => {
+      const count = byType[kind];
+      const ut = (typeof UNITS !== 'undefined' && UNITS.UNIT_TYPES && UNITS.UNIT_TYPES[kind]) || { icon: 'infantry', color: '#7b8a4a', name: 'Infantería' };
+      const ic = ut.icon || 'infantry';
+      const col = ut.color || '#7b8a4a';
+
+      const ug = svgEl('g', { transform: `translate(${g.cx.toFixed(1)} ${(g.cy - 10 - i * 10).toFixed(1)})`, class: 'fx-unit' });
+      const inner = svgEl('g', { class: 'fx-sc' });
+      const badge = iconG(ic, col, 4.5);
+      if (count > 1) badge.append(svgEl('text', { class: 'fx-lv', x: 4, y: -2.5 }, String(count)));
+      inner.append(badge);
+      ug.append(inner);
+      gUnits.append(ug);
+    });
+  }
+
+  // Marcadores de estimación para países EN GUERRA con el jugador
+  for (const [cid, c] of Object.entries(game.countries)) {
+    if (!c || cid === me || !isAtWar(cid, me)) continue;
+    const g = geoById[cid];
+    if (!g) continue;
+
+    const army = c.army || 0, tanks = c.tanks || 0, planes = c.planes || 0;
+    if (army === 0 && tanks === 0 && planes === 0) continue;
+
+    const ug = svgEl('g', { transform: `translate(${g.cx.toFixed(1)} ${g.cy.toFixed(1)})`, class: 'fx-unit fx-enemy' });
+    const inner = svgEl('g', { class: 'fx-sc' });
+    const badge = svgEl('g', { class: 'fx-ico' },
+      svgEl('circle', { r: 5, fill: '#9a4a42', stroke: '#f3e6c4', 'stroke-width': 0.8 }),
+      svgEl('text', { class: 'fx-est', x: 0, y: 0.8 }, '?'));
+    inner.append(badge);
+    ug.append(inner);
+    gUnits.append(ug);
+  }
 }
 
 function drawSel() {
@@ -314,19 +401,23 @@ export function apply(k) {
   if (!root) return;
   root.style.setProperty('--ik', (1 / Math.max(1, k * 0.85)).toFixed(3));
   const z = (k >= 1.8 ? ' z1' : '') + (k >= 3.2 ? ' z2' : '');
-  if (z !== zoomCls) { zoomCls = z; root.setAttribute('class', 'fx-root' + z); }
+  const m = ' m-' + currentMode;
+  const cls = 'fx-root' + z + m;
+  if (cls !== root.getAttribute('class')) root.setAttribute('class', cls);
+  zoomCls = z;
 }
 
 // ---------- estado del juego ----------
 let prevLv = null, seenFx = new Set(), firstUpdate = true;
 const recent = new Map(); // animaciones lanzadas por el jugador (evitar duplicado)
 
-export function update(game) {
+export function update(game, S, mode) {
+  currentMode = mode || 'rel';
   const pr = game && game.ext && game.ext.prov; if (!pr) return;
-  const sig = game.turn + '|' + Object.entries(pr).map(([k, s]) => k + s.o + JSON.stringify(s.b) + (s.q ? s.q.kind + s.q.turns : '') + (s.fx ? s.fx.k + s.fx.t : '')).join(',');
+  const sig = game.turn + '|' + currentMode + '|' + Object.entries(pr).map(([k, s]) => k + s.o + JSON.stringify(s.b) + (s.q ? s.q.kind + s.q.turns : '') + (s.fx ? s.fx.k + s.fx.t : '')).join(',');
   if (sig === lastSig) return;
   lastSig = sig;
-  drawLayers(game);
+  drawLayers(game, S);
   // obras completadas y combates del turno
   const lv = {};
   let n = 0;
@@ -345,6 +436,7 @@ export function update(game) {
   }
   prevLv = lv; firstUpdate = false;
   fillPanel();
+  apply(1); // Forzar actualización de clase
 }
 
 export function pickProv(cid, wx, wy) {

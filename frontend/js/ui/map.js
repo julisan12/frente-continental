@@ -15,11 +15,19 @@ let sheetMin = false;
 const pts = new Map();
 
 // ---- Modos de mapa ----
-const MODES = [['pol', 'Político'], ['rel', 'Relaciones'], ['eco', 'Economía'], ['mil', 'Militar'], ['blq', 'Bloques']];
-let mode = 'pol', modeBox = null, legendBox = null;
-try { const v = localStorage.getItem('fc.mapmode'); if (MODES.some((m) => m[0] === v)) mode = v; } catch (e) { /* sin LS */ }
+const MODES = [['rel', 'Relaciones'], ['res', 'Recursos'], ['war', 'Guerra'], ['pol', 'Político']];
+let mode = 'rel', modeBox = null, legendBox = null;
+try {
+  const v = localStorage.getItem('fc.mapmode');
+  // Migrar valores antiguos (eco, mil, blq, pol) a 'rel'
+  if (v && !['rel', 'res', 'war', 'pol'].includes(v)) {
+    mode = 'rel';
+    localStorage.setItem('fc.mapmode', 'rel');
+  } else if (v && MODES.some((m) => m[0] === v)) {
+    mode = v;
+  }
+} catch (e) { /* sin LS */ }
 const cb = () => document.documentElement.dataset.cb === '1';
-const hasBlocs = () => { const g = getState().game; return !!(g && g.ext && g.ext.blocs && Object.keys(g.ext.blocs).length); };
 function lerpC(a, b, t) {
   const pa = a.match(/\w\w/g).map((x) => parseInt(x, 16)), pb = b.match(/\w\w/g).map((x) => parseInt(x, 16));
   return 'rgb(' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(',') + ')';
@@ -29,35 +37,39 @@ function divColor(v) { // v -100..100
   const t = (Math.max(-100, Math.min(100, v)) + 100) / 200;
   return t < 0.5 ? lerpC(c[0], c[1], t * 2) : lerpC(c[1], c[2], (t - 0.5) * 2);
 }
-function seqColor(t) {
-  t = Math.max(0, Math.min(1, t));
-  if (cb()) return t < 0.5 ? lerpC('440154', '21918c', t * 2) : lerpC('21918c', 'fde725', (t - 0.5) * 2);
-  return lerpC('2b3a2a', 'd3b160', t);
-}
-const BLOC_COLS = ['#b8975a', '#4f7a9a', '#9a4a42', '#7b8a4a', '#8a5a9a', '#4a9a8f'];
-const BLOC_CB = ['#1f77d4', '#e8710a', '#f2c200', '#7f7f7f', '#8c564b', '#17becf'];
-function milOf(c) { return c ? (c.army || 0) + (c.tanks || 0) * 0.5 + (c.planes || 0) * 0.8 : 0; }
 function modeFill(id, owner, g, fallback) {
   const me = g.player, c = g.countries[owner];
   if (mode === 'rel') {
-    if (owner === me) return cb() ? '#f2c200' : '#b8975a';
+    // Relaciones: gris neutro, ROJO guerra, VERDE aliados/bloque, AZUL jugador
+    if (owner === me) return cb() ? '#1f77d4' : '#4f7a9a';
     if (isAtWar(owner, me)) return cb() ? '#e8710a' : '#9a4a42';
-    if (isAllied(owner, me)) return cb() ? '#1f77d4' : '#6b7f4a';
-    return divColor(relation(me, owner));
+    // Verde para aliados o miembros del mismo bloque que el jugador
+    const blocs = (g.ext && g.ext.blocs) || {};
+    const myBloc = Object.keys(blocs).find((b) => (blocs[b] || []).includes(me));
+    const isInMyBloc = myBloc && (blocs[myBloc] || []).includes(owner);
+    if (isAllied(owner, me) || isInMyBloc) return cb() ? '#1f77d4' : '#6fa467';
+    return '#8a8c78'; // gris neutro
   }
-  if (mode === 'eco' || mode === 'mil') {
-    const f = mode === 'eco' ? (x) => (x ? x.industry || 0 : 0) : milOf;
-    const mx = Math.max(1, ...Object.keys(g.countries).map((k) => f(g.countries[k])));
-    return seqColor(Math.sqrt(f(c) / mx));
+  if (mode === 'res') {
+    // Recursos: colores apagados/neutros por país
+    return fallback;
   }
-  if (mode === 'blq') {
-    const ids = Object.keys((g.ext && g.ext.blocs) || {});
-    const i = ids.findIndex((b) => (g.ext.blocs[b] || []).includes(owner));
-    return i < 0 ? '#3a3d33' : (cb() ? BLOC_CB : BLOC_COLS)[i % BLOC_COLS.length];
+  if (mode === 'war') {
+    // Guerra: países en guerra con jugador en rojo, jugador en azul, resto neutral
+    if (owner === me) return cb() ? '#1f77d4' : '#4f7a9a';
+    if (isAtWar(owner, me)) return cb() ? '#e8710a' : '#9a4a42';
+    return fallback;
+  }
+  if (mode === 'pol') {
+    // Político: degradado continuo VERDE (+100) a ROJO (-100/guerra)
+    if (owner === me) return cb() ? '#1f77d4' : '#4f7a9a';
+    const rel = relation(me, owner);
+    const war = isAtWar(owner, me);
+    const v = war ? -100 : rel;
+    return divColor(v);
   }
   return fallback;
 }
-function blocName(id) { try { return (F.BLOCS && F.BLOCS[id] && F.BLOCS[id].name) || id; } catch (e) { return id; } }
 function setMode(m) {
   mode = m;
   try { localStorage.setItem('fc.mapmode', m); } catch (e) { /* sin LS */ }
@@ -65,28 +77,33 @@ function setMode(m) {
 }
 function renderModes() {
   if (!modeBox) return;
-  if (mode === 'blq' && !hasBlocs()) mode = 'pol';
-  modeBox.replaceChildren(...MODES.filter((m) => m[0] !== 'blq' || hasBlocs()).map(([id, label]) =>
+  modeBox.replaceChildren(...MODES.map(([id, label]) =>
     h('button', { 'aria-pressed': String(mode === id), onclick: () => setMode(id) }, label)));
   renderLegend();
 }
 function renderLegend() {
   if (!legendBox) return;
   legendBox.replaceChildren();
-  if (mode === 'pol') { legendBox.style.display = 'none'; return; }
   legendBox.style.display = '';
   const sw = (col, t) => h('div', { class: 'sw' }, h('i', { style: { background: col } }), t);
   const grad = (a, b, mid) => h('div', { class: 'grad', style: { background: `linear-gradient(90deg,${a}${mid ? ',' + mid : ''},${b})` } });
   if (mode === 'rel') {
-    legendBox.append(h('div', null, 'Relación contigo'), grad(divColor(-100), divColor(100), divColor(0)),
-      h('div', { class: 'lg' }, h('span', null, '-100'), h('span', null, '0'), h('span', null, '+100')),
-      sw(cb() ? '#e8710a' : '#9a4a42', 'En guerra'), sw(cb() ? '#1f77d4' : '#6b7f4a', 'Aliado'));
-  } else if (mode === 'eco' || mode === 'mil') {
-    legendBox.append(h('div', null, mode === 'eco' ? 'Industria' : 'Fuerza militar'), grad(seqColor(0), seqColor(1)),
-      h('div', { class: 'lg' }, h('span', null, 'Baja'), h('span', null, 'Alta')));
-  } else if (mode === 'blq') {
-    const ids = Object.keys(getState().game.ext.blocs);
-    legendBox.append(h('div', null, 'Bloques'), ...ids.map((b, i) => sw((cb() ? BLOC_CB : BLOC_COLS)[i % BLOC_COLS.length], blocName(b))), sw('#3a3d33', 'Sin bloque'));
+    legendBox.append(h('div', null, 'Relación con el jugador'),
+      sw(cb() ? '#1f77d4' : '#4f7a9a', 'Mi país'),
+      sw(cb() ? '#e8710a' : '#9a4a42', 'En guerra'),
+      sw(cb() ? '#1f77d4' : '#6fa467', 'Aliado/bloque'),
+      sw('#8a8c78', 'Neutral'));
+  } else if (mode === 'res') {
+    legendBox.append(h('div', null, 'Recursos y edificios'),
+      h('div', { class: 'muted', style: { fontSize: '10px', marginTop: '3px' } }, 'Insignias visibles solo en este modo'));
+  } else if (mode === 'war') {
+    legendBox.append(h('div', null, 'Teatro de operaciones'),
+      sw(cb() ? '#e8710a' : '#9a4a42', 'Enemigo en guerra'),
+      sw(cb() ? '#1f77d4' : '#4f7a9a', 'Mi país'),
+      h('div', { class: 'muted', style: { fontSize: '10px', marginTop: '3px' } }, 'Unidades y ocupación visible'));
+  } else if (mode === 'pol') {
+    legendBox.append(h('div', null, 'Gradiente político'), grad(divColor(-100), divColor(100), divColor(0)),
+      h('div', { class: 'lg' }, h('span', null, 'Guerra'), h('span', null, 'Neutral'), h('span', null, 'Aliado')));
   }
 }
 
@@ -232,7 +249,7 @@ function colorize() {
   star.style.display = '';
   const sel = world.querySelector('.ctry.sel');
   if (sel) world.insertBefore(sel, FX.anchor() || null); // sobre las demas, bajo provincias
-  try { FX.update(g, S); } catch (e) { console.warn('mapfx', e); }
+  try { FX.update(g, S, mode); } catch (e) { console.warn('mapfx', e); }
   world.append(star);
   apply();
 }
@@ -337,7 +354,7 @@ export function mount(container) {
     btn('Ver todo el mapa', 'globe', fit));
   modeBox = h('div', { class: 'mapmodes', role: 'group', 'aria-label': 'Modo de mapa' });
   legendBox = h('div', { class: 'maplegend', 'aria-hidden': 'true', style: { display: 'none' } });
-  container.append(stage, compass, bar, btns, modeBox, legendBox, evBox, sheet);
+  container.append(stage, compass, bar, btns, h('div', { class: 'mapctl' }, modeBox, legendBox), evBox, sheet);
   bindGestures();
   new ResizeObserver(() => { rectC = null; apply(); }).observe(stage);
   addEventListener('scroll', () => { rectC = null; }, { passive: true });

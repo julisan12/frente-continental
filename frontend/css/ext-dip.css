@@ -1,1 +1,6 @@
-/* Tanda 2: ext-dip (ver el modulo JS correspondiente) */
+/* Tanda 2: diplomacia agresiva (ataque sorpresa, presión) */
+.dip-btn{min-height:44px}
+.dip-prov{display:flex;align-items:center;gap:8px;text-align:left}
+.dip-prov .grow{flex:1}
+.dip-sorpresa{border-color:var(--rust)}
+.dip-sorpresa .btn.danger{font-weight:700}

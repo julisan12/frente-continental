@@ -62,13 +62,13 @@ const MAX_STOCK_TURNS = 30;
 
 const MARKET_BASE_PRICES = { food: 4, fuel: 7, goods: 6, metal: 6 };
 const MARKET_SELL_FACTOR = 0.6;
-const MARKET_LIMIT_BASE = 20;
-const MARKET_LIMIT_INFRA = 2; // por cada 10 de infraestructura
+const MARKET_LIMIT_BASE = 40;
+const MARKET_LIMIT_INFRA = 3; // por cada 10 de infraestructura
 
 const MILITARY_COSTS = {
   tanks: { metal: 6, fuel: 3, per_unit: { metal: 1, fuel: 0.5 } },
   planes: { metal: 5, fuel: 6, per_unit: { metal: 1.2, fuel: 1.5 } },
-  recruit: { goods: 2, per_unit: { goods: 0.15 } },  // por mil tropas
+  recruit: { goods: 1, per_unit: { goods: 0.15 } },  // por mil tropas
   build: { metal: 4 },
   project: {
     factory: { metal: 8 },

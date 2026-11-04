@@ -30,3 +30,7 @@
 .unit-card .bar{margin:2px 0}
 .odds-big{font-size:22px;font-family:var(--font-head);color:var(--cream)}
 .odds-good{color:var(--ok)} .odds-mid{color:var(--amber)} .odds-bad{color:var(--bad)}
+
+/* Mapa limpio: fondo plano (sin cuadricula) y fronteras de pais solidas finas */
+.map-stage{background:linear-gradient(160deg,#0f2745,#081830)}
+.ctry{stroke-width:.8px;stroke-dasharray:none}

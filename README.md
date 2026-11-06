@@ -147,3 +147,13 @@ Tanda 3 (unidades, edificios y mapa limpio; módulos `engine/roster.js`, `engine
 - **Aspecto**: paleta oliva/caqui/latón con camuflaje vectorial, ilustraciones nuevas de edificios y unidades.
 - **Cabecera**: contadores con icono en formato compacto (999, 10k, 1,5M, 1B) con la cifra exacta al tocar; las noticias van arriba y
   «Por mi cuenta» pasa a la barra inferior (siete botones) con insignia de pendientes.
+
+Tanda 4 – Mundo y victoria (módulo `engine/world.js`, `ui/world.js`, `css/ext-world.css`):
+
+- **Duración de 128 turnos** (antes 48) con cuatro tipos de victoria: conquista, económica (liderazgo del PIB sostenido varios turnos),
+  diplomática (mantener una alianza amplia varios turnos) y supervivencia (llegar al último turno). El progreso de cada una se ve en la partida
+  (`victory_progress`) y el tipo ganador queda en `victory_type`.
+- **Noticias internacionales** (`game.ext.news`, últimas 60): guerras, diplomacia, disturbios, información y desastres. El carrusel las muestra
+  y al tocar se abre la lista completa.
+- **Accidentes internacionales**: catástrofes en otros países con un modal de decisión (ayuda completa, parcial, mínima o no ayudar) que
+  afecta a dinero, relaciones y prestigio. La IA decide sola cuando ayudar.

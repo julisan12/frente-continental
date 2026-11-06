@@ -85,6 +85,8 @@ def game_view(game: Dict[str, Any]) -> Dict[str, Any]:
     top = sorted(compute_scores(game).items(), key=lambda kv: -kv[1])[:5]
     view["ranking"] = [{"id": e, "name": S.display_name(game, e), "score": round(v, 1)} for e, v in top]
     view["max_turns"] = C.MAX_TURNS
+    from .turn import victory_progress
+    view["victory_progress"] = victory_progress(game)
     return view
 
 

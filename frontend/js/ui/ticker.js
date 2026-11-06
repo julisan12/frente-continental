@@ -2,6 +2,7 @@
 import { h } from '../util.js';
 import { icon } from '../icons.js';
 import { goTo } from './tasks.js';
+import { openNewsList } from './world.js';
 
 // Las decisiones pendientes se recolectan en tasks.js; se reexporta para quien las necesite.
 export { collectDecisions } from './tasks.js';
@@ -9,7 +10,7 @@ export { collectDecisions } from './tasks.js';
 const ICON_MAP = {
   war: 'sword', eco: 'coins', dip: 'rings', spy: 'target', tech: 'lab',
   supply: 'shortage', unrest: 'fire', mil: 'shield', info: 'news',
-  victory: 'star', defeat: 'close', event: 'alert',
+  victory: 'star', defeat: 'close', event: 'alert', disaster: 'alert',
 };
 
 // Estado global del carrusel para sobrevivir a repintados
@@ -75,7 +76,7 @@ function collectItems(g) {
 }
 
 /** Toque en una noticia: Más → Noticias. */
-const navigate = () => goTo('more');
+const navigate = () => openNewsList();
 
 /** Renderiza el carrusel */
 function renderTicker(items, currentIdx) {

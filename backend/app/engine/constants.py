@@ -134,4 +134,9 @@ FOG_RANGE = (0.8, 1.2)          # niebla de guerra: factor de estimacion para no
 
 # --- Guerra Fria / suministro ---
 SUPPLY_PENALTY = 0.7
-MAX_TURNS = 48
+MAX_TURNS = 128  # 10 años y 8 meses
+# --- Victorias alternativas ---
+ECON_LEAD_RATIO = 1.5      # industria propia >= 1.5x la del segundo
+ECON_WIN_TURNS = 20        # turnos seguidos de liderazgo economico
+DIPLO_ALLY_SHARE = 0.5     # fraccion de los demas paises vivos que son aliados
+DIPLO_WIN_TURNS = 12       # turnos seguidos de hegemonia diplomatica

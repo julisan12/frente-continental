@@ -10,7 +10,7 @@ export function news(game, text, kind = 'info') {
   if (!game.ext) return;
   if (!Array.isArray(game.ext.news)) game.ext.news = [];
   game.ext.news.push({ turn: game.turn, text, kind });
-  if (game.ext.news.length > 80) game.ext.news.splice(0, game.ext.news.length - 80);
+  if (game.ext.news.length > 60) game.ext.news.splice(0, game.ext.news.length - 60);
 }
 
 /** True si cid es un pais vivo e independiente (no ocupado). */

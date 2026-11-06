@@ -6,6 +6,7 @@ import { icon, emblem } from '../icons.js';
 import { getState, setState, delOrder, endTurn, player } from '../state.js';
 import { confirmModal, turnReport, gameOver, newGameFlow } from './modals.js';
 import { newsTicker, destroyTicker } from './ticker.js';
+import { maybeWorldModal } from './world.js';
 import { countTasks, countByScreen, goTo } from './tasks.js';
 
 const NAV = [
@@ -127,6 +128,7 @@ async function doEndInner() {
   if (!r) return;
   play('turn');
   if (r.report) await turnReport(r.report);
+  await maybeWorldModal();
   const g = getState().game;
   if (g && g.ended) play(g.result === 'victory' || g.winner === g.player ? 'win' : 'alert');
   if (g && g.ended && await gameOver(g)) await newGameFlow(false);

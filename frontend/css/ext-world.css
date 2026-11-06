@@ -1,0 +1,8 @@
+.world-opts .world-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; }
+.world-opt .pro { color: #4caf50; font-size: .85em; }
+.world-opt .con { color: #e57373; font-size: .85em; }
+.news-list { max-height: 60vh; overflow-y: auto; }
+.news-list .news-war { border-left: 3px solid #e57373; }
+.news-list .news-disaster { border-left: 3px solid #ffb74d; }
+.news-list .news-dip { border-left: 3px solid #64b5f6; }
+.news-list .news-unrest { border-left: 3px solid #ff8a65; }

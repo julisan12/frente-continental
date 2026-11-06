@@ -29,13 +29,58 @@ export function compute_scores(game) {
 
 export const scores = compute_scores;
 
+export function _econ_state(game) {
+  const player = game["player"];
+  const mine = game["countries"][player]["industry"];
+  const rivals = S.entities(game).filter(e => e !== player && S.is_alive(game, e))
+    .map(e => game["countries"][e]["industry"]);
+  const best = rivals.length ? Math.max(...rivals) : 0;
+  return [mine, best, Boolean(S.is_alive(game, player) && mine >= best * C.ECON_LEAD_RATIO)];
+}
+
+export function _diplo_state(game) {
+  const player = game["player"];
+  const others = S.entities(game).filter(e => e !== player && S.is_alive(game, e));
+  const allies = S.allies_of(game, player).filter(a => others.includes(a));
+  const ok = Boolean(S.is_alive(game, player) && others.length && allies.length >= others.length * C.DIPLO_ALLY_SHARE);
+  return [allies.length, others.length, ok];
+}
+
+export function update_streaks(game) {
+  if (!_has(game, "streaks")) game["streaks"] = {econ: 0, diplo: 0};
+  const st = game["streaks"];
+  st["econ"] = _econ_state(game)[2] ? (st["econ"] || 0) + 1 : 0;
+  st["diplo"] = _diplo_state(game)[2] ? (st["diplo"] || 0) + 1 : 0;
+}
+
+export function victory_progress(game) {
+  const player = game["player"];
+  const st = game["streaks"] || {};
+  const own = S.territories_of(game, player).length;
+  const target = S.victory_target();
+  const [mine, best] = _econ_state(game);
+  const [na, no] = _diplo_state(game);
+  const sc = compute_scores(game);
+  const mySc = _has(sc, player) ? sc[player] : 0;
+  const rank = 1 + Object.keys(sc).filter(e => e !== player && sc[e] > mySc).length;
+  return {
+    "conquest": {"own": own, "target": target},
+    "economic": {"mine": P.pyRound(mine, 1), "best_rival": P.pyRound(best, 1),
+      "ratio": C.ECON_LEAD_RATIO, "streak": st["econ"] || 0, "need": C.ECON_WIN_TURNS},
+    "diplomatic": {"allies": na, "others": no, "share": C.DIPLO_ALLY_SHARE,
+      "streak": st["diplo"] || 0, "need": C.DIPLO_WIN_TURNS},
+    "survival": {"turn": game["turn"], "max_turns": C.MAX_TURNS,
+      "score": P.pyRound(mySc, 1), "rank": rank},
+  };
+}
+
 export function _check_end(game) {
   const player = game["player"];
   const own = S.territories_of(game, player).length;
   if (!_has(game, "zero_stability_turns")) game["zero_stability_turns"] = {};
   const zst = game["zero_stability_turns"];
   if (own >= S.victory_target()) {
-    Object.assign(game, {ended: true, winner: player, result: "victory", loss_reason: null});
+    Object.assign(game, {ended: true, winner: player, result: "victory", loss_reason: null, victory_type: "conquest"});
     S.add_log(game, `¡Victoria! Controlas ${own} territorios del continente.`, "victory");
     return;
   }
@@ -57,6 +102,17 @@ export function _check_end(game) {
       return;
     }
   }
+  const st = game["streaks"] || {};
+  if ((st["econ"] || 0) >= C.ECON_WIN_TURNS) {
+    Object.assign(game, {ended: true, winner: player, result: "victory", loss_reason: null, victory_type: "economic"});
+    S.add_log(game, "¡Victoria económica! Tu nación domina la economía del continente.", "victory");
+    return;
+  }
+  if ((st["diplo"] || 0) >= C.DIPLO_WIN_TURNS) {
+    Object.assign(game, {ended: true, winner: player, result: "victory", loss_reason: null, victory_type: "diplomatic"});
+    S.add_log(game, "¡Victoria diplomática! Lideras un bloque que abarca el continente.", "victory");
+    return;
+  }
   if (game["turn"] >= C.MAX_TURNS) {
     const sc = compute_scores(game);
     const keys = Object.keys(sc);
@@ -64,12 +120,12 @@ export function _check_end(game) {
     const best = P.maxBy(keys, (k) => sc[k]);
     // empate favorece al jugador, intencional
     if (best === player || (_has(sc, player) ? sc[player] : 0) >= sc[best]) {
-      Object.assign(game, {ended: true, winner: player, result: "victory", loss_reason: null});
-      S.add_log(game, "¡Victoria por supremacía! Al cabo de 4 años lideras el continente.", "victory");
+      Object.assign(game, {ended: true, winner: player, result: "victory", loss_reason: null, victory_type: "survival"});
+      S.add_log(game, "¡Victoria por supremacía! Al cabo de 10 años lideras el continente.", "victory");
     } else {
       // sin dominador: la nacion sobrevive a la Guerra Fria (tablas, no derrota)
       Object.assign(game, {ended: true, result: "draw", winner: best,
-        loss_reason: `${S.display_name(game, best)} lidera el continente tras 4 años, pero tu nación sobrevive a la Guerra Fría.`});
+        loss_reason: `${S.display_name(game, best)} lidera el continente tras 10 años, pero tu nación sobrevive a la Guerra Fría.`});
       S.add_log(game, `Fin de la partida: ${game['loss_reason']}`, "info");
     }
   }
@@ -117,6 +173,7 @@ export function end_turn(game) {
     zst[ent] = c["stability"] <= 0 ? (_has(zst, ent) ? zst[ent] : 0) + 1 : 0;
   }
 
+  update_streaks(game);
   _check_end(game);
   const after = _snapshot(game);
   const deltas = {};

@@ -135,4 +135,9 @@ export const FOG_RANGE = [0.8, 1.2];          // niebla de guerra: factor de est
 
 // --- Guerra Fria / suministro ---
 export const SUPPLY_PENALTY = 0.7;
-export const MAX_TURNS = 48;
+export const MAX_TURNS = 128; // 10 años y 8 meses
+// --- Victorias alternativas ---
+export const ECON_LEAD_RATIO = 1.5;
+export const ECON_WIN_TURNS = 20;
+export const DIPLO_ALLY_SHARE = 0.5;
+export const DIPLO_WIN_TURNS = 12;

@@ -16,8 +16,9 @@ import * as AERO from './aero.js';
 import { prov_labc_level } from './provinces.js';
 
 /** Modulos de Tanda 1, 2 y 3 con interfaz estandar {init, action, turn, pending}. Orden fijo. */
-export const EXT_MODULES = [UNITS, SUPPLY, DIPEXT, AERO];
-const MODULE_SALT = ['units', 'supply', 'dipext', 'aero'];
+import * as WORLD from './world.js';
+export const EXT_MODULES = [UNITS, SUPPLY, DIPEXT, AERO, WORLD];
+const MODULE_SALT = ['units', 'supply', 'dipext', 'aero', 'world'];
 
 const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
 const r2 = (x) => Math.round(x * 100) / 100;

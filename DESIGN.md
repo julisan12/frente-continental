@@ -124,6 +124,14 @@ del país en proporciones 60/40 (tropas) y 30/70 (vehículos).
   drones `dexp`/`dsen` de cualquier país (`ext.aero.drone_uses`). Botín: `LOOT_MONEY_MAX` 60, `LOOT_RES_MAX` 80, 3 % del tesoro; `research_rate` base 0,24.
 - **Cabecera**: `fmtCompact` (`js/util.js`); `ui/ticker.js` solo muestra noticias; `ui/tasks.js` es la pantalla «Por mi cuenta» (barra inferior).
 
+## Mundo y victoria (Tanda 4)
+- **Duración y victorias** (motor Python y JS en paridad): `MAX_TURNS = 128`; `game.streaks = {econ, diplo}` cuenta turnos seguidos de ventaja económica
+  (`ECON_LEAD_RATIO`, `ECON_WIN_TURNS`) y de alianza amplia (`DIPLO_ALLY_SHARE`, `DIPLO_WIN_TURNS`); `update_streaks` y `victory_progress` en `turn`;
+  `game.victory_type` ∈ conquest | economic | diplomatic | survival; `view.victory_progress` expone las cuatro barras.
+- **Mundo** (solo JS, `game.ext.world = {pending, prestige, seen, history}`): acciones `world_resolve` (opción full | partial | min | none) y `world_news`.
+  `ext.news` guarda las últimas 60 noticias con `kind` war | dip | unrest | info | disaster.
+- **UI**: `ui/world.js` (`maybeWorldModal` tras el informe de turno, `openNewsList` desde el carrusel); `ticker.js` toma `ext.news` y abre la lista.
+
 ## API REST (prefijo /api)
 - `GET  /api/health` → {ok:true, version}
 - `GET  /api/map` → {viewBox:"0 0 500 535", countries:[{id,name,color,path,neighbors,sea,power,alignment,resources}]}

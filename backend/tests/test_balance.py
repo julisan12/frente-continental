@@ -22,3 +22,21 @@ def test_balance_passive_games():
         assert g["turn"] <= C.MAX_TURNS
         durations.append(g["turn"])
     assert sum(durations) / len(durations) >= 10, durations
+
+
+def test_duracion_y_progreso_victoria():
+    from app.engine.views import game_view
+    assert C.MAX_TURNS == 128
+    g = S.new_game("Argentina", seed=7, game_id="vp")
+    end_turn(g)
+    vp = game_view(g)["victory_progress"]
+    for k in ("conquest", "economic", "diplomatic", "survival"):
+        assert k in vp
+    assert set(g["streaks"]) == {"econ", "diplo"}
+
+
+def test_fin_de_partida_con_tipo_de_victoria():
+    g = _play("Argentina", 5)
+    assert g["ended"]
+    if g.get("victory_type"):
+        assert g["victory_type"] in ("conquest", "economic", "diplomatic", "survival")

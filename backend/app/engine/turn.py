@@ -28,13 +28,59 @@ def compute_scores(game: Game) -> Dict[str, float]:
 scores = compute_scores
 
 
+def _econ_state(game: Game):
+    """(industria propia, industria del mejor rival, cumple liderazgo)."""
+    player = game["player"]
+    mine = game["countries"][player]["industry"]
+    rivals = [game["countries"][e]["industry"] for e in S.entities(game)
+              if e != player and S.is_alive(game, e)]
+    best = max(rivals) if rivals else 0
+    return mine, best, bool(S.is_alive(game, player) and mine >= best * C.ECON_LEAD_RATIO)
+
+
+def _diplo_state(game: Game):
+    """(aliados vivos, otros paises vivos, cumple hegemonia diplomatica)."""
+    player = game["player"]
+    others = [e for e in S.entities(game) if e != player and S.is_alive(game, e)]
+    allies = [a for a in S.allies_of(game, player) if a in others]
+    ok = bool(S.is_alive(game, player) and others and len(allies) >= len(others) * C.DIPLO_ALLY_SHARE)
+    return len(allies), len(others), ok
+
+
+def update_streaks(game: Game) -> None:
+    st = game.setdefault("streaks", {"econ": 0, "diplo": 0})
+    st["econ"] = st.get("econ", 0) + 1 if _econ_state(game)[2] else 0
+    st["diplo"] = st.get("diplo", 0) + 1 if _diplo_state(game)[2] else 0
+
+
+def victory_progress(game: Game) -> dict:
+    """Progreso hacia cada tipo de victoria (para la vista)."""
+    player = game["player"]
+    st = game.get("streaks") or {}
+    own = len(S.territories_of(game, player))
+    target = S.victory_target()
+    mine, best, _ = _econ_state(game)
+    na, no, _ = _diplo_state(game)
+    sc = compute_scores(game)
+    rank = 1 + sum(1 for e, v in sc.items() if e != player and v > sc.get(player, 0))
+    return {
+        "conquest": {"own": own, "target": target},
+        "economic": {"mine": round(mine, 1), "best_rival": round(best, 1),
+                     "ratio": C.ECON_LEAD_RATIO, "streak": st.get("econ", 0), "need": C.ECON_WIN_TURNS},
+        "diplomatic": {"allies": na, "others": no, "share": C.DIPLO_ALLY_SHARE,
+                       "streak": st.get("diplo", 0), "need": C.DIPLO_WIN_TURNS},
+        "survival": {"turn": game["turn"], "max_turns": C.MAX_TURNS,
+                     "score": round(sc.get(player, 0), 1), "rank": rank},
+    }
+
+
 def _check_end(game: Game) -> None:
     player = game["player"]
     own = len(S.territories_of(game, player))
     zst = game.setdefault("zero_stability_turns", {})
     if own >= S.victory_target():
         game.update(ended=True, winner=player, result="victory",
-                    loss_reason=None)
+                    loss_reason=None, victory_type="conquest")
         S.add_log(game, f"¡Victoria! Controlas {own} territorios del continente.", "victory")
         return
     if own == 0 or not S.is_alive(game, player):
@@ -51,17 +97,29 @@ def _check_end(game: Game) -> None:
                         loss_reason=f"{S.display_name(game, ent)} domina el continente.")
             S.add_log(game, f"Derrota: {game['loss_reason']}", "defeat")
             return
+    st = game.get("streaks") or {}
+    if st.get("econ", 0) >= C.ECON_WIN_TURNS:
+        game.update(ended=True, winner=player, result="victory", loss_reason=None,
+                    victory_type="economic")
+        S.add_log(game, "¡Victoria económica! Tu nación domina la economía del continente.", "victory")
+        return
+    if st.get("diplo", 0) >= C.DIPLO_WIN_TURNS:
+        game.update(ended=True, winner=player, result="victory", loss_reason=None,
+                    victory_type="diplomatic")
+        S.add_log(game, "¡Victoria diplomática! Lideras un bloque que abarca el continente.", "victory")
+        return
     if game["turn"] >= C.MAX_TURNS:
         scores = compute_scores(game)
         best = max(scores, key=scores.get)
         # empate favorece al jugador, intencional
         if best == player or scores.get(player, 0) >= scores[best]:
-            game.update(ended=True, winner=player, result="victory", loss_reason=None)
-            S.add_log(game, "¡Victoria por supremacía! Al cabo de 4 años lideras el continente.", "victory")
+            game.update(ended=True, winner=player, result="victory", loss_reason=None,
+                        victory_type="survival")
+            S.add_log(game, "¡Victoria por supremacía! Al cabo de 10 años lideras el continente.", "victory")
         else:
             # sin dominador: la nacion sobrevive a la Guerra Fria (tablas, no derrota)
             game.update(ended=True, result="draw", winner=best,
-                        loss_reason=f"{S.display_name(game, best)} lidera el continente tras 4 años, "
+                        loss_reason=f"{S.display_name(game, best)} lidera el continente tras 10 años, "
                                     "pero tu nación sobrevive a la Guerra Fría.")
             S.add_log(game, f"Fin de la partida: {game['loss_reason']}", "info")
 
@@ -101,6 +159,7 @@ def end_turn(game: Game) -> dict:
             continue
         zst[ent] = zst.get(ent, 0) + 1 if c["stability"] <= 0 else 0
 
+    update_streaks(game)
     _check_end(game)
     after = _snapshot(game)
     game["last_deltas"] = {k: round(after[k] - before[k], 2) for k in ("money", "stability", "industry")}

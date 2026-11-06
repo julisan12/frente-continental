@@ -143,6 +143,63 @@ export function subdivide(cid, rows, countryPath) {
   return out;
 }
 
+/** Numero de regiones («estados») de un pais con n departamentos: 2 a 4 en los pequenos, 5 a 10 en los grandes. */
+export function region_count(n) {
+  if (n <= 3) return Math.max(1, n);
+  if (n <= 6) return 2;
+  if (n <= 9) return 3;
+  if (n <= 14) return 4;
+  return Math.min(10, Math.max(5, Math.round(n / 3.4)));
+}
+/**
+ * Densidad 0 («estados»): agrupa los departamentos de un pais en regiones contiguas (k-medias determinista
+ * en el plano del mapa). Devuelve filas [nombre, lat, lon, terreno, idx, null, miembros[]] ordenadas de
+ * forma estable; el centroide es el promedio de los miembros y el terreno el mas frecuente.
+ */
+export function group_states(cid, rows) {
+  const n = rows.length, K = region_count(n);
+  const pts = rows.map((r) => toXY(r[1], r[2]));
+  if (K >= n) return rows.map((r, i) => [r[0], r[1], r[2], r[3], i, null, [r[0]]]);
+  // semillas por punto mas lejano, partiendo del punto mas cercano al centro
+  const cx = pts.reduce((s, q) => s + q[0], 0) / n, cy = pts.reduce((s, q) => s + q[1], 0) / n;
+  let first = 0;
+  pts.forEach((q, i) => { if (Math.hypot(q[0] - cx, q[1] - cy) < Math.hypot(pts[first][0] - cx, pts[first][1] - cy)) first = i; });
+  const seeds = [first];
+  while (seeds.length < K) {
+    let b = -1, bd = -1;
+    pts.forEach((q, i) => {
+      const d = Math.min(...seeds.map((s) => Math.hypot(q[0] - pts[s][0], q[1] - pts[s][1])));
+      if (d > bd) { bd = d; b = i; }
+    });
+    seeds.push(b);
+  }
+  let cent = seeds.map((s) => pts[s].slice());
+  let asg = new Array(n).fill(0);
+  for (let it = 0; it < 20; it++) {
+    asg = pts.map((q) => { let b = 0, bd = Infinity; cent.forEach((c, k) => { const d = Math.hypot(q[0] - c[0], q[1] - c[1]); if (d < bd) { bd = d; b = k; } }); return b; });
+    cent = cent.map((c, k) => {
+      const m = pts.filter((_, i) => asg[i] === k);
+      return m.length ? [m.reduce((s, q) => s + q[0], 0) / m.length, m.reduce((s, q) => s + q[1], 0) / m.length] : c;
+    });
+  }
+  const groups = [];
+  for (let k = 0; k < K; k++) {
+    const idx = asg.map((a, i) => (a === k ? i : -1)).filter((i) => i >= 0);
+    if (idx.length) groups.push(idx);
+  }
+  // nombre = departamento mas cercano al centro de la region; orden estable por indice del primer miembro
+  groups.sort((a, b) => a[0] - b[0]);
+  return groups.map((idx, gi) => {
+    const mx = idx.reduce((s, i) => s + pts[i][0], 0) / idx.length, my = idx.reduce((s, i) => s + pts[i][1], 0) / idx.length;
+    const med = idx.reduce((b, i) => (Math.hypot(pts[i][0] - mx, pts[i][1] - my) < Math.hypot(pts[b][0] - mx, pts[b][1] - my) ? i : b));
+    const cnt = {}; for (const i of idx) cnt[rows[i][3]] = (cnt[rows[i][3]] || 0) + 1;
+    const terr = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a] || (a < b ? -1 : 1))[0];
+    const [lat, lon] = fromXY(mx, my);
+    const name = idx.length === 1 ? rows[med][0] : 'Región ' + rows[med][0];
+    return [name, +lat.toFixed(3), +lon.toFixed(3), terr, gi, null, idx.map((i) => rows[i][0])];
+  });
+}
+
 export const TERRAIN = {
   S: { name: 'Selva', color: '#2f5a2a' },
   M: { name: 'Montaña', color: '#6b5a45' },

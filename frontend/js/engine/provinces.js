@@ -1,7 +1,7 @@
 // Provincias funcionales: cada pais se divide en provincias con dueno propio, recursos,
 // edificios (base, fabrica, refineria, mina, granja), cola de construccion y conquista por provincia.
 // Estado en game.ext.prov / game.ext.cown. Puro: sin DOM.
-import { PROV, toXY, VARIANTS, variant_of, subdivide } from '../data/provinces.js';
+import { PROV, toXY, VARIANTS, variant_of, subdivide, group_states } from '../data/provinces.js';
 import { capture } from './military.js';
 import { at_war, divisions_of, sync_armies, land_adjacency, use_variant, all_countries } from './state.js';
 import * as UNITS from './units.js';
@@ -202,8 +202,9 @@ const _geos = {};
 let _geo = null;
 
 function geoKey(game) {
-  const dens = (game && game.ext && game.ext.geo && game.ext.geo.density) || 1;
-  return { variant: variant_of(game), density: dens === 2 ? 2 : 1 };
+  const dn = game && game.ext && game.ext.geo ? game.ext.geo.density : null;
+  const dens = dn === 0 || dn === 2 ? dn : 1; // 0 = estados (por defecto), 1 = departamentos (original), 2 = subdividida
+  return { variant: variant_of(game), density: dens };
 }
 /**
  * Selecciona la geometria de provincias de la partida (variante + densidad). Las partidas antiguas
@@ -218,6 +219,7 @@ export function use_game_geo(game) {
 /** Filas de provincias de un pais para la densidad pedida. */
 function rows_for(cid, density) {
   const base = PROV[cid];
+  if (density === 0) return group_states(cid, base);
   if (density < 2) return base.map((r, i) => [r[0], r[1], r[2], r[3], i, null]);
   const c = all_countries().find((x) => x.id === cid);
   return subdivide(cid, base, c && c.path);
@@ -243,13 +245,14 @@ function build_geo(variant, density) {
       const [x, y] = toXY(r[1], r[2]);
       const o = { pid: cid + ':' + i, c: cid, i, n: r[0], t: r[3], x, y };
       if (density >= 2) { o.parent = PROV[cid][r[4]][0]; o.sub = r[5]; }
+      if (density === 0) o.members = r[6];
       list.push(o);
     });
   }
   const byId = {}; for (const p of list) byId[p.pid] = p;
   let land = null; try { land = land_adjacency(); } catch (e) { land = null; }
   const adj = {}; for (const p of list) adj[p.pid] = new Set();
-  const intra = density >= 2 ? 30 : 40, inter = density >= 2 ? 24 : 30, keepN = density >= 2 ? 4 : 5;
+  const intra = density >= 2 ? 30 : density === 0 ? 60 : 40, inter = density >= 2 ? 24 : density === 0 ? 48 : 30, keepN = density >= 2 ? 4 : density === 0 ? 4 : 5;
   for (const p of list) {
     const near = [];
     for (const q of list) {
@@ -287,7 +290,7 @@ export function prov_geo() {
 export function init_prov(game) {
   const e = game.ext;
   if (e.prov && e.cown) { migrate_prov(game); return; }
-  if (!e.prov && !e.geo) e.geo = { density: 2 }; // partida nueva: geometria densa
+  if (!e.prov && !e.geo) e.geo = { density: 0 }; // partida nueva: estados (pocas provincias grandes); las guardadas conservan su densidad
   use_game_geo(game);
   const G = prov_geo();
   e.prov = {}; e.cown = {};
@@ -302,7 +305,7 @@ export function init_prov(game) {
   }
   for (const [cid, ps] of Object.entries(byC)) {
     e.cown[cid] = game.countries[cid].owner;
-    let cap = ps.find((p) => CAP_RE.test(p.parent || p.n));
+    let cap = ps.find((p) => CAP_RE.test(p.parent || p.n)) || ps.find((p) => p.members && p.members.some((m) => CAP_RE.test(m)));
     if (cap && cap.parent) { // subdividida: la parte mas cercana al centroide original
       const o = PROV[cid].find((r) => r[0] === cap.parent), [ox, oy] = o ? toXY(o[1], o[2]) : [cap.x, cap.y];
       cap = ps.filter((p) => p.parent === cap.parent).reduce((b, p) => (Math.hypot(p.x - ox, p.y - oy) < Math.hypot(b.x - ox, b.y - oy) ? p : b));

@@ -69,7 +69,7 @@ export function victory_progress(game) {
       "ratio": C.ECON_LEAD_RATIO, "streak": st["econ"] || 0, "need": C.ECON_WIN_TURNS},
     "diplomatic": {"allies": na, "others": no, "share": C.DIPLO_ALLY_SHARE,
       "streak": st["diplo"] || 0, "need": C.DIPLO_WIN_TURNS},
-    "survival": {"turn": game["turn"], "max_turns": C.MAX_TURNS,
+    "survival": {"turn": game["turn"], "max_turns": S.max_turns_of(game),
       "score": P.pyRound(mySc, 1), "rank": rank},
   };
 }
@@ -113,7 +113,9 @@ export function _check_end(game) {
     S.add_log(game, "¡Victoria diplomática! Lideras un bloque que abarca el continente.", "victory");
     return;
   }
-  if (game["turn"] >= C.MAX_TURNS) {
+  const maxT = S.max_turns_of(game);
+  if (maxT > 0 && game["turn"] >= maxT) {
+    const yrs = Math.round(maxT / 12); const span = yrs >= 1 ? `${yrs} año${yrs === 1 ? "" : "s"}` : `${maxT} meses`;
     const sc = compute_scores(game);
     const keys = Object.keys(sc);
     if (!keys.length) throw new Error("max() arg is an empty sequence");
@@ -121,11 +123,11 @@ export function _check_end(game) {
     // empate favorece al jugador, intencional
     if (best === player || (_has(sc, player) ? sc[player] : 0) >= sc[best]) {
       Object.assign(game, {ended: true, winner: player, result: "victory", loss_reason: null, victory_type: "survival"});
-      S.add_log(game, "¡Victoria por supremacía! Al cabo de 10 años lideras el continente.", "victory");
+      S.add_log(game, `¡Victoria por supremacía! Al cabo de ${span} lideras el continente.`, "victory");
     } else {
       // sin dominador: la nacion sobrevive a la Guerra Fria (tablas, no derrota)
       Object.assign(game, {ended: true, result: "draw", winner: best,
-        loss_reason: `${S.display_name(game, best)} lidera el continente tras 10 años, pero tu nación sobrevive a la Guerra Fría.`});
+        loss_reason: `${S.display_name(game, best)} lidera el continente tras ${span}, pero tu nación sobrevive a la Guerra Fría.`});
       S.add_log(game, `Fin de la partida: ${game['loss_reason']}`, "info");
     }
   }
@@ -184,7 +186,7 @@ export function end_turn(game) {
   game["orders"] = [];
   if (!P.truthy(game["ended"])) {
     game["turn"] = turn + 1;
-    game["date"] = S.date_for_turn(game["turn"]);
+    game["date"] = S.date_for_turn(game["turn"], game["start_year"]);
   }
   const lines = _has(game, "_turn_lines") ? game["_turn_lines"] : [];
   delete game["_turn_lines"];

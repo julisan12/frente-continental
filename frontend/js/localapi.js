@@ -10,6 +10,8 @@ import { end_turn } from './engine/turn.js';
 import { init_ext, ext_action, ext_turn } from './engine/features.js';
 import { VARIANTS, variant_of } from './data/provinces.js';
 import { use_game_geo } from './engine/provinces.js';
+import { SCENARIOS, apply_scenario } from './engine/scenarios.js';
+import { MAX_TURNS } from './engine/constants.js';
 
 const PREFIX = 'fc_local_game_';
 const INDEX_KEY = 'fc_local_games';
@@ -145,9 +147,18 @@ export function createGame(body) {
   if (body.seed != null && seed === null) fail(422, 'Solicitud no válida.');
   if (seed === undefined) seed = null;
   if (body.variant != null && !VARIANTS[body.variant]) fail(422, 'Variante de mapa no válida.');
-  const variant = body.variant == null ? 'latam' : body.variant;
+  if (body.scenario != null && !SCENARIOS[body.scenario]) fail(422, 'Escenario no válido.');
+  const sc = body.scenario == null ? null : SCENARIOS[body.scenario];
+  let maxT = null;
+  if (body.max_turns != null) { maxT = num(body.max_turns); if (maxT === null || maxT < 0 || maxT > 1000 || maxT !== Math.trunc(maxT)) fail(422, 'Cantidad de turnos no válida.'); }
+  const variant = sc && sc.variant ? sc.variant : (body.variant == null ? 'latam' : body.variant);
   let g;
-  try { g = S.new_game(body.player, seed, null, variant); activate(g); init_ext(g); } catch (e) { bad(e); }
+  try {
+    g = S.new_game(body.player, seed, null, variant);
+    if (maxT !== null && maxT !== MAX_TURNS) g.max_turns = maxT;
+    if (sc) apply_scenario(g, body.scenario);
+    activate(g); init_ext(g);
+  } catch (e) { bad(e); }
   save(g);
   return views.game_view(g);
 }

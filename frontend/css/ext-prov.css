@@ -355,3 +355,4 @@
 .pp-prodq-row { display: flex; align-items: center; gap: 8px; color: var(--cream); }
 .pp-prodq-row .grow { flex: 1; }
 .pp-dt-desc.muted { color: var(--muted); }
+.pp-annex { margin-top: 6px; padding: 5px 8px; border-left: 3px solid var(--accent, #d9a441); background: rgba(217,164,65,.08); border-radius: 4px; line-height: 1.35; }

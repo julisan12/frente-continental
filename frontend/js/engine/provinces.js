@@ -322,6 +322,19 @@ export function init_prov(game) {
 const P = (game) => game.ext && game.ext.prov;
 export function provs_of_country(game, cid) { return Object.keys(P(game) || {}).filter((pid) => P(game)[pid].c === cid); }
 
+/** Umbral de anexion: si el atacante domina mas de esta fraccion del pais, lo anexa entero. */
+export const ANNEX_SHARE = 0.5;
+/** Fraccion del pais `cid` (ponderada por departamentos agrupados) en manos de `ent`. */
+export function conquest_share(game, cid, ent) {
+  const pr = P(game); if (!pr) return 0;
+  const byId = prov_geo().byId; let tot = 0, mine = 0;
+  for (const q of provs_of_country(game, cid)) {
+    const g = byId[q]; const w = (g && g.members && g.members.length) || 1;
+    tot += w; if (pr[q].o === ent) mine += w;
+  }
+  return tot ? mine / tot : 0;
+}
+
 /** Tropas que defienden la provincia (k). Fortaleza ×(1+0,10/nivel); los cañones estáticos del dueño suman def×0,5. */
 export function prov_defense(game, pid) {
   const p = P(game)[pid]; const G = prov_geo(); const gp = G.byId[pid];
@@ -402,10 +415,10 @@ export function prov_attack(game, ent, pid, rng, free) {
     p.b.capital = 0; // la capital (edificio) no se hereda; p.cap sigue marcando la capital histórica
     try { AERO.on_prov_lost(game, pid, old); } catch (e) { /* aviación opcional */ }
     try { UNITS.on_prov_capture(game, ent, pid, old); } catch (e) { /* botin/descontento opcionales */ }
-    // pais completo: si cae la capital o todas sus provincias
+    // pais completo: si cae la capital, todas sus provincias o mas de la mitad del territorio
     const own = game.countries[p.c].owner;
     const rest = provs_of_country(game, p.c).filter((q) => pr[q].o === own);
-    if (own !== ent && (p.cap || rest.length === 0)) {
+    if (own !== ent && (p.cap || rest.length === 0 || conquest_share(game, p.c, ent) > ANNEX_SHARE)) {
       capture(game, ent, p.c);
       _relocate(game, own, p.c);
       for (const q of provs_of_country(game, p.c)) if (pr[q].o === own) { pr[q].o = ent; pr[q].b.capital = 0; try { AERO.on_prov_lost(game, q, own); } catch (e) { /* opcional */ } }

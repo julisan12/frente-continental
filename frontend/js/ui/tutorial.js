@@ -4,7 +4,7 @@ import { openModal } from './modals.js';
 import { lsGet, lsSet } from './sound.js';
 
 const STEPS = [
-  ['Bienvenida y objetivo', 'Eres el gobierno de una nación latinoamericana en enero de 1962, en plena Guerra Fría. Tienes 48 meses (un turno por mes) para hacer crecer tu país, tejer alianzas y dominar el continente.'],
+  ['Bienvenida y objetivo', 'Eres el gobierno de una nación latinoamericana (en el escenario clásico, enero de 1962, en plena Guerra Fría). Cada turno es un mes y la duración la eliges al crear la partida para hacer crecer tu país, tejer alianzas y dominar el continente.'],
   ['Mapa y país', 'Toca un país en el mapa para ver su ficha. Arrastra para moverte y usa los botones +/- para acercar. Dorado: tuyo; verde oliva: aliados; rojo óxido: enemigos. La pestaña País muestra tus datos y acciones.'],
   ['Economía, política e investigación', 'En Economía reparte tu presupuesto entre Ejército, Social, Infraestructura e Industria y lanza proyectos. Vigila la estabilidad: si cae habrá protestas y golpes. Elige también línea de investigación y enfoque nacional cuando estén disponibles.'],
   ['Ejército, diplomacia y espionaje', 'En Ejército recluta, agrupa divisiones y ordena mover o atacar a territorios vecinos. En Diplomacia propón alianzas, pactos y bloques, y usa el espionaje para ganar ventaja. Declarar la guerra tiene costo político.'],

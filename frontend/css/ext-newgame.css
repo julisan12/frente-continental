@@ -8,3 +8,7 @@
 .mapsil svg{width:100%;height:100%;display:block}
 .maptxt{display:flex;flex-direction:column;gap:2px}
 .maptxt strong{font-size:14px}
+.ng-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.ng-chips .pill{min-height:36px}
+.ng-chips .pill:disabled{opacity:.45;cursor:not-allowed}
+.pickgrid .item.sug{border-color:var(--brass)}

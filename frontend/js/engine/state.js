@@ -117,16 +117,21 @@ export function is_sea_route(a, b) {
 }
 
 // ---------------------------------------------------------------- claves y fechas
+/** Turnos maximos de la partida (0 = sin limite). Campo opcional: si falta, el valor clasico. */
+export function max_turns_of(game) {
+  return game && game.max_turns != null ? game.max_turns : C.MAX_TURNS;
+}
+
 /** Clave de relacion con ids ordenados. */
 export function pair_key(a, b) {
   const [x, y] = cmp(a, b) <= 0 ? [a, b] : [b, a];
   return `${x}|${y}`;
 }
 
-/** Fecha 'Ene 1962' para el turno (1 = enero 1962). */
-export function date_for_turn(turn) {
+/** Fecha 'Ene 1962' para el turno (1 = enero del año inicial; 1962 por defecto). */
+export function date_for_turn(turn, start = null) {
   const m = pymod(turn - 1, 12);
-  const y = C.START_YEAR + floordiv(turn - 1, 12);
+  const y = (start || C.START_YEAR) + floordiv(turn - 1, 12);
   return `${C.MONTHS[m]} ${y}`;
 }
 

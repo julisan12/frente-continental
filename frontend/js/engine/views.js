@@ -97,7 +97,7 @@ export function game_view(game) {
     .sort((x, y) => (y[0][1] - x[0][1]) || (x[1] - y[1]))
     .map(x => x[0]).slice(0, 5);
   view["ranking"] = top.map(([e, v]) => ({ "id": e, "name": S.display_name(game, e), "score": pyRound(v, 1) }));
-  view["max_turns"] = C.MAX_TURNS;
+  view["max_turns"] = S.max_turns_of(game);
   view["victory_progress"] = T.victory_progress(game);
   return view;
 }

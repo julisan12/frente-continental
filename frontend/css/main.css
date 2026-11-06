@@ -77,6 +77,7 @@ h1,h2,h3,h4{margin:0;font-family:var(--font-head);color:var(--cream);font-weight
 .btn-end{flex:1;font-family:var(--font-head);font-size:19px;min-height:52px;border-radius:10px;flex-direction:row}
 .btn-end small{font-family:var(--font-ui);font-size:11px;opacity:.85;display:block;line-height:1}
 .btn-undo{width:52px;min-height:52px;flex:none;padding:0}
+.ctry:focus,.ctry:focus-visible,svg :focus{outline:none}
 .btn:focus-visible,.nav button:focus-visible,.stat:focus-visible,.tab:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
 
 /* panels */

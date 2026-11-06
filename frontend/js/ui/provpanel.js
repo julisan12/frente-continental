@@ -156,6 +156,16 @@ export function refresh() {
       h('div', { class: 'pp-stats' },
         'Defensa: ', h('b', null, String(def)), ' · Guarnición: ', h('b', null, String(s.g || 0)))));
 
+  // Progreso de anexion: capital o mas de la mitad del pais
+  if (!mine && s.c && game.countries[s.c] && game.countries[s.c].owner !== me) {
+    let share = 0; try { share = P.conquest_share(game, s.c, me); } catch (e) { /* */ }
+    const capPid = (P.provs_of_country(game, s.c) || []).find((q) => pr[q] && pr[q].cap);
+    const capName = capPid && P.prov_geo().byId[capPid] ? P.prov_geo().byId[capPid].n : '—';
+    head.append(h('div', { class: 'pp-annex small' },
+      'Controlas ', h('b', null, Math.round(share * 100) + '%'), ' de ', cname(s.c),
+      '. Anexas el país entero al tomar su capital (', h('b', null, capName), ') o más de la mitad.'));
+  }
+
   if (unrest && unrest > 0) {
     head.append(h('div', { class: 'pp-unrest' },
       h('span', { class: 'small muted' }, 'Descontento'),

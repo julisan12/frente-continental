@@ -85,7 +85,13 @@ async function req(method, path, body, opts = {}) {
 const gp = (id) => '/games/' + encodeURIComponent(id);
 export const health = (opts) => req('GET', '/health', undefined, opts);
 export const getMap = (variant) => req('GET', '/map' + (variant ? '?variant=' + encodeURIComponent(variant) : ''));
-export const newGame = (player, variant) => req('POST', '/games', variant ? { player, variant } : { player });
+export const newGame = (player, variant, opts = {}) => {
+  const b = { player };
+  if (variant) b.variant = variant;
+  if (opts.scenario) b.scenario = opts.scenario;
+  if (opts.max_turns != null) b.max_turns = opts.max_turns;
+  return req('POST', '/games', b);
+};
 export const getGame = (id, opts) => req('GET', gp(id), undefined, opts);
 export const addOrder = (id, order) => req('POST', gp(id) + '/orders', order);
 export const delOrder = (id, oid) => req('DELETE', gp(id) + '/orders/' + encodeURIComponent(oid));

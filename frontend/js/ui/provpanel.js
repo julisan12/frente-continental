@@ -166,8 +166,8 @@ export function refresh() {
   const yld = P.prov_yield(game, selPid);
   const prodTxt = yieldText(yld);
   const res = s.r && P.RES[s.r]
-    ? h('div', { class: 'pp-res' }, ART.artResource(s.r, { size: 40, title: P.RES[s.r].name }),
-        h('div', { class: 'pp-res-info' }, h('span', null, P.RES[s.r].name),
+    ? h('div', { class: 'pp-res' }, iconHTML(resIcon(s.r) || 'crate', RES_COLOR[s.r] || '#b8975a', 34),
+        h('div', { class: 'pp-res-info' }, h('span', { style: 'color:' + (RES_COLOR[s.r] || 'inherit') }, (FX.RES_NAME && FX.RES_NAME[s.r]) || P.RES[s.r].name),
           h('small', { class: 'pp-prod' }, prodTxt ? 'Produce: ' + prodTxt : 'Sin producción')))
     : h('div', { class: 'pp-res muted' }, 'Sin recurso estratégico' + (prodTxt ? ' · Produce: ' + prodTxt : ''));
 

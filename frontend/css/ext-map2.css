@@ -1,0 +1,41 @@
+/* Mapa v2: niebla de guerra, seleccion iluminada, recursos, vias y movimiento desde el mapa */
+
+/* Niebla: oscurece las provincias sin visibilidad */
+.fx-fog { display: inline; pointer-events: none; }
+.fx-fogp { fill: rgba(5,10,20,.58); }
+
+/* Seleccion: sin cuadro; la provincia se ilumina */
+.fx-selfill.fx-lit { fill: rgba(255,240,190,.34); filter: drop-shadow(0 0 3px rgba(255,236,170,.9)); }
+.fx-seledge { display: none; }
+.ctry.sel { stroke: #07101d; stroke-width: inherit; }
+
+/* Recursos de color propio visibles en cualquier modo */
+.fx-b-res { display: inline; }
+
+/* Vias: carretera clara continua, ferrocarril oscuro con travesanos */
+.fx-road-c { stroke: rgba(30,20,8,.9); }
+.fx-road { stroke: #f0dc9c; stroke-dasharray: none; }
+.fx-rail-c { stroke: #14181d; }
+.fx-rail { stroke: #e9ecef; stroke-dasharray: 1.4 2.6; stroke-linecap: butt; }
+
+/* Unidades tocables desde el mapa */
+.fx-tap { pointer-events: all; cursor: pointer; }
+.fx-mv { filter: drop-shadow(0 0 3px #ffe28a); }
+.ctry.mv-ok { stroke: #ffe28a; stroke-width: 1.6; }
+
+/* Barra de informacion rapida de la provincia */
+.mp-bar { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 6px 8px; margin: 4px 0; border-radius: 8px; background: rgba(255,255,255,.06); font-size: 12px; }
+.mp-bar span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.mp-bar b { font-weight: 700; }
+
+/* Grupos de ejercito y orden de movimiento */
+.mp-groups { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.mp-group { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.06); border: 1px solid transparent; cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.mp-group.sel { border-color: #ffe28a; background: rgba(255,226,138,.14); }
+.mp-group .grow { flex: 1; }
+.mp-hint { padding: 6px 8px; border-radius: 8px; background: rgba(255,226,138,.16); color: #ffe28a; font-size: 12px; }
+
+/* Leyenda de vias */
+.lg-line { display: inline-block; width: 22px; height: 0; vertical-align: middle; margin-right: 4px; }
+.lg-line.road { border-top: 3px solid #f0dc9c; box-shadow: 0 0 0 1px #1e1408; }
+.lg-line.rail { border-top: 3px dashed #e9ecef; background: #14181d; box-shadow: 0 0 0 1px #14181d; }

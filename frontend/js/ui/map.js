@@ -1,8 +1,10 @@
 // Mapa SVG interactivo: seleccion, arrastre, zoom por pellizco/rueda, hoja de pais.
 import { showNews } from './more.js';
-import { h, svgEl, clamp } from '../util.js';
+import { h, svgEl, clamp, toast } from '../util.js';
 import { icon } from '../icons.js';
-import { getState, setState, subscribe, player, ownerOf, isAllied, isAtWar, relation } from '../state.js';
+import { getState, setState, subscribe, player, ownerOf, isAllied, isAtWar, relation, sendOrder, extAction } from '../state.js';
+import { kind_of } from '../engine/units.js';
+import { ROSTER } from '../engine/roster.js';
 import { countryPanel, countryButtons, statusPills } from './country.js';
 import * as F from '../engine/features.js';
 import * as FX from './mapfx.js';
@@ -112,7 +114,8 @@ function renderLegend() {
       sw(cb() ? '#1f77d4' : '#6fa467', 'Aliado/bloque'),
       sw('#8a8c78', 'Neutral'));
   } else if (mode === 'res') {
-    legendBox.append(h('div', null, 'Recursos y edificios'),
+    legendBox.append(h('div', null, 'Recursos'),
+      ...Object.keys(FX.RES_NAME).map((k) => sw(FX.RES_COLOR[k], FX.RES_NAME[k])),
       h('div', { class: 'muted', style: { fontSize: '10px', marginTop: '3px' } }, 'Insignias de recursos y edificios; sin tropas'));
   } else if (mode === 'war') {
     legendBox.append(h('div', null, 'Teatro de operaciones'),
@@ -127,6 +130,9 @@ function renderLegend() {
       sw('#8a8c78', 'Neutrales'),
       sw(cb() ? '#e8710a' : '#9a4a42', 'Enemigos (guerra)'));
   }
+  legendBox.append(
+    h('div', { class: 'sw' }, h('span', { class: 'lg-line road' }), 'Carretera'),
+    h('div', { class: 'sw' }, h('span', { class: 'lg-line rail' }), 'Ferrocarril'));
 }
 
 function parseGeo(path) {
@@ -267,14 +273,12 @@ function colorize() {
     try { fill = modeFill(id, owner, g, fill); } catch (e) { /* conserva el color base */ }
     p.setAttribute('fill', fill);
     p.setAttribute('fill-opacity', op);
-    p.classList.toggle('sel', S.selected === id);
-    p.setAttribute('stroke', S.selected === id ? '#f1e3b8' : '#07101d');
+    p.classList.toggle('mv-ok', !!mv && id !== mv.cid);
+    p.setAttribute('stroke', '#07101d');
   });
   const star = world.querySelector('[data-star]');
   star.dataset.star = me;
   star.style.display = '';
-  const sel = world.querySelector('.ctry.sel');
-  if (sel) world.insertBefore(sel, FX.anchor() || null); // sobre las demas, bajo provincias
   try { FX.update(g, S, mode); } catch (e) { console.warn('mapfx', e); }
   world.append(star);
   apply();
@@ -352,10 +356,10 @@ function renderSheet() {
     const diplo = ownerOf(cid) !== me ? h('button', { class: 'btn sm', onclick: () => setState({ diploTarget: ownerOf(cid), screen: 'diplomacy' }) }, icon('rings'), 'Diplomacia') : null;
     content = h('div', { class: 'peek' },
       h('div', { class: 'row pk-top' }, h('b', { class: 'grow pk-name' }, m ? m.name : cid), statusPills(cid)),
-      provLine(g),
+      provLine(g), infoBar(cid),
       h('div', { class: 'btns' }, h('button', { class: 'btn sm', onclick: () => setSheet('half') }, icon('up'), 'Acciones'), diplo, closeBtn));
   } else {
-    content = h('div', { class: 'body' }, countryPanel(cid), FX.provPanel(), h('div', { class: 'btns' }, countryButtons(cid), closeBtn));
+    content = h('div', { class: 'body' }, infoBar(cid), armyGroups(cid), countryPanel(cid), FX.provPanel(), h('div', { class: 'btns' }, countryButtons(cid), closeBtn));
   }
   sheet.replaceChildren(grab, content);
   const nb = sheet.querySelector('.body');
@@ -390,8 +394,100 @@ function renderEvent() {
     h('b', null, icon('alert'), 'Evento'), h('span', { class: 't' }, ev.title || ev.name || 'Decisión pendiente')));
 }
 
+// ---- Movimiento desde el mapa: tocar unidad/grupo y luego el destino ----
+let mv = null; // { cid, kind?, form? }
+function setMv(m) {
+  mv = m;
+  try { FX.setMoveSel(m ? { cid: m.cid, kind: m.kind || null } : null); } catch (e) { /* sin fx */ }
+  colorize(); renderSheet();
+}
+function ownDivs(cid, kind) {
+  const g = getState().game, me = player();
+  return ((g && g.divisions) || []).filter((d) => d.owner === me && d.location === cid && (!kind || kind_of(d) === kind));
+}
+function ownForms(cid) {
+  const g = getState().game, me = player();
+  const forms = (g && g.ext && g.ext.forms && g.ext.forms[me]) || [];
+  const ids = new Set(ownDivs(cid).map((d) => d.id));
+  return forms.filter((f) => (f.divs || []).some((i) => ids.has(i)));
+}
+async function sendMv(target) {
+  const m = mv;
+  if (!m) return;
+  const otype = isAtWar(ownerOf(target), player()) ? 'attack' : 'move';
+  const dest = (getState().mapById[target] || {}).name || target;
+  try {
+    if (m.form) {
+      await extAction({ action: 'form_order', form_id: m.form, otype, target });
+    } else {
+      const ds = ownDivs(m.cid, m.kind);
+      for (const d of ds) await sendOrder({ type: otype, target, division_id: d.id });
+      if (!ds.length) { toast('No hay unidades para mover', 'warn'); setMv(null); return; }
+    }
+    toast((otype === 'attack' ? 'Ataque ordenado hacia ' : 'Movimiento ordenado hacia ') + dest);
+  } catch (err) { toast(String((err && err.message) || err), 'warn'); }
+  setMv(null);
+}
+function infoBar(cid) {
+  const g = getState().game;
+  if (!g) return null;
+  const ds = ((g.divisions || []).filter((d) => d.location === cid && d.owner === player()));
+  const pid = FX.selectedProv();
+  const ps = pid && g.ext && g.ext.prov && g.ext.prov[pid];
+  const c = g.countries[cid];
+  const item = (ic, label, val) => h('span', null, icon(ic), label + ' ', h('b', null, String(val)));
+  const out = [item('infantry', 'Unidades', ds.length)];
+  try {
+    if (ps) {
+      const y = P.prov_yield(g, pid);
+      const prod = Object.entries(y).filter(([, v]) => v > 0).map(([k, v]) => k + ' +' + (Math.round(v * 10) / 10)).join(' ');
+      out.push(item('coins', 'Producción', prod || '-'));
+      const lv = Object.values(ps.b || {}).reduce((s, v) => s + v, 0);
+      out.push(item('crane', 'Infraestructura', lv));
+      out.push(item('flag', 'Reclutamiento', ps.q ? ps.q.kind + ' (' + ps.q.turns + ' t)' : 'libre'));
+    }
+  } catch (e) { /* sin datos */ }
+  if (c) out.push(item('heart', 'Moral', Math.round(c.stability) + '%'));
+  return h('div', { class: 'mp-bar' }, ...out);
+}
+function armyGroups(cid) {
+  if (ownerOf(cid) !== player() && !ownDivs(cid).length) return null;
+  const ds = ownDivs(cid);
+  if (!ds.length) return null;
+  const kinds = {};
+  ds.forEach((d) => { const k = kind_of(d); kinds[k] = (kinds[k] || 0) + 1; });
+  const rows = Object.entries(kinds).map(([k, n]) => {
+    const r = ROSTER[k] || {};
+    const on = mv && mv.cid === cid && mv.kind === k && !mv.form;
+    return h('button', { class: 'mp-group' + (on ? ' sel' : ''), 'aria-pressed': String(on), onclick: () => setMv(on ? null : { cid, kind: k }) },
+      h('span', { class: 'grow' }, (r.name || k) + ' x' + n), h('span', { class: 'muted small' }, r.spd != null ? 'mov ' + r.spd : ''));
+  });
+  const frows = ownForms(cid).map((f) => {
+    const on = mv && mv.form === f.id;
+    return h('button', { class: 'mp-group' + (on ? ' sel' : ''), 'aria-pressed': String(on), onclick: () => setMv(on ? null : { cid, form: f.id }) },
+      h('span', { class: 'grow' }, 'Grupo: ' + f.name), h('span', { class: 'muted small' }, (f.divs || []).length + ' div.'));
+  });
+  return h('div', { class: 'mp-groups' }, h('div', { class: 'small muted' }, 'Ejército aquí (toca y luego el destino en el mapa)'), ...rows, ...frows,
+    mv ? h('div', { class: 'mp-hint' }, 'Toca el país de destino en el mapa') : null);
+}
+
 function onTap(e) {
+  const S0 = getState();
+  const badge = e.target.closest && e.target.closest('[data-uc]');
+  if (badge && badge.dataset.uk) {
+    const cid = badge.dataset.uc, kind = badge.dataset.uk;
+    const same = mv && mv.cid === cid && mv.kind === kind && !mv.form;
+    setMv(same ? null : { cid, kind });
+    if (!same) toast('Unidad elegida: toca el destino en el mapa');
+    return;
+  }
   const t = e.target.closest && e.target.closest('[data-id]');
+  if (mv && t && S0.game) {
+    if (t.dataset.id === mv.cid) { setMv(null); return; }
+    sendMv(t.dataset.id);
+    return;
+  }
+  if (mv && !t) { setMv(null); return; }
   const S = getState();
   if (t) {
     if (e.clientX != null) {

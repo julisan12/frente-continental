@@ -9,11 +9,12 @@ import { ROSTER } from '../engine/roster.js';
 
 const VW = 500, VH = 535;
 const LS = 'fc.mapfx';
-export const RES_COLOR = { petroleo: '#3a3530', gas: '#2f7fe0', minerales: '#8b5fd0', cobre: '#d0702a', agro: '#6fae2e', madera: '#8a5a2c' };
+export const RES_COLOR = { petroleo: '#2b2623', gas: '#2f9fe8', minerales: '#8b5fd0', cobre: '#e0762a', agro: '#7cc02e', madera: '#a0652c' };
+export const RES_NAME = { petroleo: 'Petróleo', gas: 'Gas', minerales: 'Minerales', cobre: 'Cobre', agro: 'Alimentos', madera: 'Bienes (madera)' };
 export const RES_ICON = { petroleo: 'res_oil', gas: 'res_gas', minerales: 'res_min', cobre: 'res_cu', agro: 'res_agro', madera: 'res_wood' };
 export const SUP_ICON = { food: 'wheat', fuel: 'fire', goods: 'box', metal: 'ingot' };
 export const SUP_NAME = { food: 'Alimentos', fuel: 'Combustible', goods: 'Bienes', metal: 'Metal' };
-export const INFRA_LEGEND = [['#c9a866', 'Carretera'], ['#3a3f46', 'Ferrocarril'], ['#6b5a45', 'Fortaleza'], ['#2b1d10', 'Línea defensiva']];
+export const INFRA_LEGEND = [['#e6d49a', 'Carretera'], ['#20242a', 'Ferrocarril'], ['#6b5a45', 'Fortaleza'], ['#2b1d10', 'Línea defensiva']];
 export const BUILD_COLOR = { base: '#7a2e2a', taller: '#5a6470', refineria: '#c98a2a', mina: '#6e5a48', granja: '#5b8a32', aeropuerto: '#3f7a80', puerto: '#3f6a9a', hospital: '#9a4a5a', radar: '#5a6a3a', capital: '#b8975a', labc: '#6a4a8a' };
 const reduced = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
 
@@ -22,7 +23,7 @@ try { if (/[?&]debug=1/.test(location.search)) window.__fxMoves = 0; } catch (e)
 try { enabled = localStorage.getItem(LS) !== '0'; } catch (e) { /* sin storage */ }
 
 let svgR = null, defsR = null, worldR = null, countriesR = [];
-let ocean = null, paint = null, root = null, gOcc = null, gSel = null, gBadge = null, gLbl = null, gUnits = null, gInfra = null;
+let ocean = null, paint = null, root = null, gOcc = null, gSel = null, gBadge = null, gLbl = null, gUnits = null, gInfra = null, gFog = null;
 let selPid = null, lastSig = '', zoomCls = '', currentMode = 'rel';
 let cellsById = null, geoById = {};
 
@@ -117,7 +118,8 @@ export function init(svg, defs, world, geo, countries) {
   gLbl = svgEl('g', { class: 'fxl fx-plbl' });
   gUnits = svgEl('g', { class: 'fxl fx-units' });
   gInfra = svgEl('g', { class: 'fxl fx-infra' });
-  root = svgEl('g', { class: 'fx-root' }, gOcc, gSel, gInfra, gBadge, gLbl, gUnits);
+  gFog = svgEl('g', { class: 'fxl fx-fog' });
+  root = svgEl('g', { class: 'fx-root' }, gOcc, gFog, gSel, gInfra, gBadge, gLbl, gUnits);
   world.prepend(ocean);
   world.append(paint, root);
   lastSig = ''; zoomCls = '';
@@ -192,7 +194,7 @@ function drawLayers(game, S) {
     const px = p.x.toFixed(1);
     if (s.r && P.RES[s.r]) {
       const g = svgEl('g', { class: 'fx-b-res', transform: `translate(${px} ${p.y.toFixed(1)})` });
-      g.append(svgEl('g', { class: 'fx-bsc' }, badgeG(RES_ICON[s.r] || P.RES[s.r].icon, RES_COLOR[s.r] || '#555', 5.4, 'hex', 0)));
+      g.append(svgEl('g', { class: 'fx-bsc' }, badgeG(RES_ICON[s.r] || P.RES[s.r].icon, RES_COLOR[s.r] || '#555', 6.6, 'hex', 0)));
       gBadge.append(g);
     }
     if (blds.length) {
@@ -225,8 +227,51 @@ function drawLayers(game, S) {
     drawUnits(game, S);
   }
 
+  drawFog(game, cells);
   drawSel();
 }
+
+
+// ---------- niebla de guerra ----------
+/** Provincias visibles para el jugador: propias, a <=1 de tropas propias, a <=2 de un radar o de paises espiados. */
+export function visibleProvs(game) {
+  const pr = game && game.ext && game.ext.prov; if (!pr) return null;
+  const me = game.player, G = P.prov_geo(), adj = G.adj;
+  const vis = new Set(), seen = new Map();
+  const expand = (start, depth) => {
+    let front = [start];
+    if ((seen.get(start) ?? -1) >= depth) return;
+    seen.set(start, depth); vis.add(start);
+    for (let d = 0; d < depth; d++) {
+      const nx = [];
+      for (const q of front) for (const n of (adj[q] || [])) { vis.add(n); nx.push(n); }
+      front = nx;
+    }
+  };
+  const intel = (game.ext.intel && game.ext.intel[me]) || {};
+  const troopC = new Set();
+  for (const d of game.divisions || []) if (d.owner === me && d.location) troopC.add(d.location);
+  for (const [pid, s] of Object.entries(pr)) {
+    const gp = G.byId[pid]; if (!gp) continue;
+    if (s.o === me) expand(pid, 1);
+    else if (troopC.has(gp.c)) expand(pid, 1);
+    if (s.o === me && s.b && s.b.radar > 0) expand(pid, 2);
+    if ((intel[gp.c] || 0) >= game.turn) vis.add(pid);
+    if (isAllied(me, s.o)) vis.add(pid);
+  }
+  return vis;
+}
+let fogSet = null;
+let mvSel = null;
+export function setMoveSel(m) { mvSel = m; lastSig = ''; }
+export const isFogged = (cid) => !!(fogSet && geoCountryHidden(cid));
+function geoCountryHidden(cid) {
+  const G = P.prov_geo();
+  let any = false;
+  for (const p of G.list) if (p.c === cid) { any = true; if (fogSet.has(p.pid)) return false; }
+  return any;
+}
+const fogSig = (vis) => vis ? vis.size + ':' + [...vis].sort().join('').length : '';
 
 const INFRA_KEYS = new Set(['avenida', 'ferrocarril', 'fuerte', 'linea']);
 function clipFor(cid) {
@@ -333,6 +378,7 @@ function drawUnits(game, S) {
   for (const [cid, divs] of Object.entries(byCountry)) {
     const g = geoById[cid];
     if (!g) continue;
+    if (fogSet && !divs.some((d) => d.owner === me || isAllied(me, d.owner)) && isFogged(cid)) continue;
 
     // Agrupar por tipo
     const byType = {};
@@ -356,6 +402,8 @@ function drawUnits(game, S) {
         badge.append(mk);
       }
       badge.setAttribute('transform', `translate(${((i - (n - 1) / 2) * 11.4).toFixed(1)} 0)`);
+      if (divs.some((d) => kind_of(d) === kind && d.owner === me)) { badge.setAttribute('data-uc', cid); badge.setAttribute('data-uk', kind); badge.classList.add('fx-tap'); }
+      if (mvSel && mvSel.cid === cid && mvSel.kind === kind) badge.classList.add('fx-mv');
       inner.append(badge);
     });
     row.append(inner); gUnits.append(row);
@@ -365,7 +413,7 @@ function drawUnits(game, S) {
   for (const [cid, c] of currentMode === 'war' ? Object.entries(game.countries) : []) {
     if (!c || cid === me || !isAtWar(cid, me)) continue;
     const g = geoById[cid];
-    if (!g) continue;
+    if (!g || isFogged(cid)) continue;
 
     const army = c.army || 0, tanks = c.tanks || 0, planes = c.planes || 0;
     if (army === 0 && tanks === 0 && planes === 0) continue;
@@ -381,6 +429,19 @@ function drawUnits(game, S) {
   }
 }
 
+function drawFog(game, cells) {
+  gFog.replaceChildren();
+  fogSet = visibleProvs(game);
+  if (!fogSet) return;
+  const byC = {};
+  for (const p of geoList()) if (!fogSet.has(p.pid)) (byC[p.c] = byC[p.c] || []).push(p);
+  for (const [cid, list] of Object.entries(byC)) {
+    const g = svgEl('g', { 'clip-path': `url(#${clipFor(cid)})` });
+    list.forEach((p) => g.append(svgEl('path', { d: polyD(cells[p.pid] || []), class: 'fx-fogp' })));
+    gFog.append(g);
+  }
+}
+
 function drawSel() {
   if (!gSel) return;
   gSel.replaceChildren();
@@ -388,8 +449,7 @@ function drawSel() {
   const gp = P.prov_geo().byId[selPid]; const cell = provCells()[selPid];
   if (!gp || !cell) return;
   gSel.append(svgEl('g', { 'clip-path': `url(#${clipFor(gp.c)})` },
-    svgEl('path', { d: polyD(cell), class: 'fx-selfill' }),
-    svgEl('path', { d: polyD(cell), class: 'fx-seledge' })));
+    svgEl('path', { d: polyD(cell), class: 'fx-selfill fx-lit' })));
 }
 
 export function apply(k) {
@@ -449,7 +509,8 @@ export function update(game, S, mode) {
   if (gkey !== lastGameKey) { lastGameKey = gkey; prevLv = null; seenFx = new Set(); firstUpdate = true; lastSig = ''; }
   try { if (game) trackMoves(game); } catch (e) { console.warn('mapfx move', e); }
   const pr = game && game.ext && game.ext.prov; if (!pr) return;
-  const sig = game.turn + '|' + currentMode + '|' + (game.divisions || []).map((d) => d.id + d.location).join(',') + '|' + Object.entries(pr).map(([k, s]) => k + s.o + JSON.stringify(s.b) + (s.q ? s.q.kind + s.q.turns : '') + (s.fx ? s.fx.k + s.fx.t : '')).join(',');
+  fogSet = visibleProvs(game);
+  const sig = game.turn + '|' + currentMode + '|' + fogSig(fogSet) + (mvSel ? mvSel.cid + mvSel.kind : '') + '|' + (game.divisions || []).map((d) => d.id + d.location).join(',') + '|' + Object.entries(pr).map(([k, s]) => k + s.o + JSON.stringify(s.b) + (s.q ? s.q.kind + s.q.turns : '') + (s.fx ? s.fx.k + s.fx.t : '')).join(',');
   if (sig === lastSig) return;
   lastSig = sig;
   drawLayers(game, S);

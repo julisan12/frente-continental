@@ -161,3 +161,20 @@ Estética: fondo azul marino muy oscuro, paneles con borde latón (#b8975a apaga
 botones de confirmación verde militar (#4f7a4a), alertas rojo óxido (#9a4a42). Multicolor apagado, nada saturado.
 Tipografías: serif para títulos (p.ej. "Cinzel" / "Libre Baskerville" de Google Fonts con fallback Georgia), sans para datos.
 Texto de la UI en español.
+
+## Tanda 4 – Ejército
+
+Módulo nuevo `frontend/js/engine/army2.js` (registrado en `features.js`), más cambios en `units.js`, `aero.js`, `roster.js`.
+
+Acciones (`ext_action`, campo `action`):
+- `form_join {id, div}` / `form_split {id, divs, name?}` / `form_rename {id, name}` — escuadras (`ext.forms[cid]`); el tipo sale de `group_type`.
+- `scorched_earth {div, on?}` — «Tierra quemada» en bombarderos (+25 % daño, −40 % def, −20 % HP).
+- `retrofit {div | divs}` — reacondiciona unidades viejas a la mejora actual (pago pequeño).
+- `train {div}` — entrenamiento (XP).
+- `send_neutral {div, target}` / `recall {div}` — tropas a provincia neutral (tensión; el otro país puede declarar guerra).
+- `patrol {div, pids?, on?}` — patrulla de aviones y submarinos.
+- Nuevo tipo `convoy` (reclutable con `unit_recruit`): abastece tropas fuera de provincias controladas; no ataca ni defiende; objetivo preferente de drones, helicópteros y bombarderos.
+
+Claves de estado en divisiones: `xp`, `lv` (niveles 0-5), `scorched`, `unsup` (turnos sin suministro; >2 daña HP y moral), `patrol`, `home`, `foreign`, `mp_used` (puntos de movimiento navales), `up0` (nivel de mejora al crearse). Otras: `ext.forms[cid]`, `ext.prodq` (con retardos por tipo; exploradores instantáneos, máx. 1 por provincia y turno), radar en `ext.prov[pid].b.radar` (alcance 2, factor de interceptación 0.65).
+
+Exportaciones de `army2.js`: `group_type`, `squad_of`, `form_type`, `level_of`, `gain_xp`, `mods_of`, `upkeep_of`, `tension_of`, `retrofit_cost`, `order_check`, `on_move`, `MAX_LEVEL`, `SCORCHED`. `aero.js` exporta además `do_strike` y `radar_covers`. Prueba de humo: `node tools/sim_ext.mjs 40`.

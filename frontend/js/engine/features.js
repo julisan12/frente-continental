@@ -13,11 +13,12 @@ import * as UNITS from './units.js';
 import * as SUPPLY from './supply.js';
 import * as DIPEXT from './dipext.js';
 import * as AERO from './aero.js';
+import * as ARMY2 from './army2.js';
 import { prov_labc_level } from './provinces.js';
 
 /** Modulos de Tanda 1, 2 y 3 con interfaz estandar {init, action, turn, pending}. Orden fijo. */
-export const EXT_MODULES = [UNITS, SUPPLY, DIPEXT, AERO];
-const MODULE_SALT = ['units', 'supply', 'dipext', 'aero'];
+export const EXT_MODULES = [UNITS, SUPPLY, DIPEXT, AERO, ARMY2];
+const MODULE_SALT = ['units', 'supply', 'dipext', 'aero', 'army2'];
 
 const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
 const r2 = (x) => Math.round(x * 100) / 100;

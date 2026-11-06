@@ -19,6 +19,7 @@ import { queue_order, OrderError } from './orders.js';
 import { stock_of } from './supply.js';
 import { prov_geo, prov_yield, prov_targets, prov_labc_level, BUILD, build_check, build_cost, prov_build } from './provinces.js';
 import * as AERO from './aero.js';
+import * as ARMY2 from './army2.js';
 import * as F from './features.js';
 import { army_check } from './dipext.js';
 import { ROSTER, MIGRATE_KIND, soil_mods, lookup, TERRAIN_GROUP, ordinal } from './roster.js';
@@ -86,7 +87,8 @@ export function unit_stats(game, dOrKind, owner) {
   if (!ut) return null;
   const own = owner || (d && d.owner) || (game && game.player);
   const done = _done(game, own);
-  const up = (ut.up || []).filter((t) => done.includes(t)).length;
+  const upAll = (ut.up || []).filter((t) => done.includes(t)).length;
+  const up = d && d.up0 != null ? Math.min(d.up0, upAll) : upAll;
   const k = 1 + 0.1 * up;
   const vida = d ? vida_of(game, d) : 1;
   const hp = Math.round(ut.hp * k * 10) / 10;
@@ -158,6 +160,7 @@ export function loss_mult(game, d, opp, attacking) {
     for (const p of Object.values(game.ext.prov)) if (p.c === d.location && p.o === d.owner && (p.b.fuerte || 0) > lv) lv = p.b.fuerte;
     m *= 1 - Math.min(0.5, 0.05 * lv);
   }
+  try { m /= ARMY2.mods_of(game, d).hp || 1; } catch (e) { /* opcional */ }
   return Math.max(0, m);
 }
 
@@ -174,12 +177,14 @@ export function order_check_div(game, d, type, target) {
   ensure_div(game, d);
   const ut = ROSTER[d.kind];
   if (!ut) return null;
+  if (type === 'attack' && ut.noAttack) return `${ut.name}: los convoyes no atacan.`;
   if (type === 'move' || type === 'attack') {
     if (ut.static || ut.spd === 0) return type === 'move' ? `${ut.name}: unidad estática, no puede moverse.` : `${ut.name}: unidad estática, solo defiende su territorio.`;
     if (d.st === 'carga') return `${d.name} está en carga (ferrocarril): no puede moverse ni atacar este turno.`;
     if (d.st === 'recarga') return `${d.name} está en recarga${d.rl ? ` (${d.rl} turno${d.rl === 1 ? '' : 's'})` : ''}: no puede moverse ni atacar.`;
     if (d.st === 'marcha') return `${d.name} está en marcha: no puede moverse ni atacar este turno.`;
   }
+  try { const mp = ARMY2.order_check(game, d, type); if (mp) return mp; } catch (e) { /* opcional */ }
   if (type === 'attack' && AIR_CLS.has(ut.cls) && target) {
     let r = true;
     try { r = AERO.range_ok(game, d, target); } catch (e) { r = true; }
@@ -208,6 +213,7 @@ export function default_pid(game, ent) {
 /** Turnos de producción de `kind` en la provincia `pid` (los talleres los reducen). */
 export function prod_turns(game, kind, pid) {
   const ut = ROSTER[kind]; if (!ut) return 1;
+  if (ut.turns === 0) return 0;
   const p = pid && game.ext && game.ext.prov && game.ext.prov[pid];
   return Math.max(1, ut.turns - Math.floor(((p && p.b && p.b.taller) || 0) / 2));
 }
@@ -244,6 +250,12 @@ export function recruit_check(game, ent, kind, pid) {
       if ((st[res] || 0) < qty) return `Recursos insuficientes: ${res} (se necesitan ${qty}, tienes ${Math.floor(st[res] || 0)}).`;
     }
   }
+  if (ut.turns === 0 && game.ext) {
+    // Exploradores: instantaneos, como mucho 1 por provincia y turno.
+    const id = pid || default_pid(game, ent);
+    const sp = (game.ext.scouts_spawned = game.ext.scouts_spawned || {});
+    if (sp[id] === game.turn) return 'Solo se puede reclutar 1 explorador por provincia y turno.';
+  }
   const queuedT = prod_queue(game, ent).reduce((s, q) => s + ((ROSTER[q.kind] && ROSTER[q.kind].troops) || 0), 0);
   const ac = army_check(game, ent, 'unit_recruit', { troops: ut.troops + queuedT });
   if (ac) return ac;
@@ -270,6 +282,13 @@ export function enqueue_unit(game, ent, kind, pid) {
     for (const [res, qty] of Object.entries(ut.needs || {})) st[res] = Math.max(0, (st[res] || 0) - qty);
   }
   const total = prod_turns(game, kind, where);
+  if (total === 0) {
+    const dv = _spawn(game, ent, { kind, pid: where });
+    if (!dv) return err('No hay dónde situar la unidad.');
+    game.ext.scouts_spawned = game.ext.scouts_spawned || {};
+    game.ext.scouts_spawned[where] = game.turn;
+    return ok(`${ut.name} lista al instante en ${where ? _prov_name(where) : c.name}.`);
+  }
   const q = ensure(game.ext.prodq, ent, () => []);
   q.push({ id: next_id(game, 'q'), kind, pid: where, left: total, total });
   const loc = where ? _prov_name(where) : c.name;
@@ -293,6 +312,8 @@ function _spawn(game, cid, q) {
     full: { troops: ut.troops, tanks: ut.tanks, planes: ut.planes },
   };
   if (AIR_CLS.has(ut.cls)) div.base = pid || null;
+  div.up0 = (ut.up || []).filter((t) => _done(game, cid).includes(t)).length;
+  div.xp = 0; div.lv = 0;
   game.divisions.push(div);
   return div;
 }
@@ -321,6 +342,7 @@ export function on_move(game, d, from, to) {
   if (!game.ext || !d) return;
   ensure_div(game, d);
   const ut = ROSTER[d.kind];
+  try { ARMY2.on_move(game, d); } catch (e) { /* opcional */ }
   if (!ut || d.st === 'recarga' || AIR_CLS.has(ut.cls)) return;
   const pr = game.ext.prov;
   const has = (cid, key) => !!pr && Object.values(pr).some((p) => p.c === cid && p.o === d.owner && (p.b[key] || 0) > 0);
@@ -467,7 +489,9 @@ export function turn(game, rng, lines) {
   for (const d of game.divisions || []) {
     const ut = ROSTER[d.kind]; const oc = game.countries[d.owner];
     if (!ut || !oc) continue;
-    oc.money = Math.max(0, Math.round((oc.money - ut.upkeep - (ut.cls === 'drone' ? 0.4 : 0)) * 100) / 100);
+    let up = ut.upkeep + (ut.cls === 'drone' ? 0.4 : 0);
+    try { up = ARMY2.upkeep_of(game, d); } catch (e) { /* respaldo */ }
+    oc.money = Math.max(0, Math.round((oc.money - up) * 100) / 100);
   }
 
   // IA recluta tipos variados
@@ -648,6 +672,7 @@ export function div_attack_mult(game, d, target) {
   // marina: compensa la penalizacion maritima general
   if (ut.cls === 'nav' && is_sea_route(d.location, target)) m *= 1.33;
   if (_in_combined_arms_formation(game, d)) m *= 1.10;
+  try { m *= ARMY2.mods_of(game, d).atk; } catch (e) { /* opcional */ }
   return m;
 }
 
@@ -664,6 +689,7 @@ export function div_defense_mult(game, d, target) {
   const b = game.ext.battle;
   if (b) m *= matchup_vs(d, b.att);
   if (_in_combined_arms_formation(game, d)) m *= 1.10;
+  try { m *= ARMY2.mods_of(game, d).def; } catch (e) { /* opcional */ }
   return m;
 }
 
@@ -673,7 +699,7 @@ const AI_SHARE = {
   apc: 0.05, at: 0.04, tl: 0.07, tm: 0.07, tp: 0.04,
   art: 0.06, cfort: 0.02, cnav: 0.01, misil: 0.03,
   caza: 0.05, bestr: 0.015, bomb: 0.04, bpes: 0.015, heli: 0.03,
-  dkam: 0.02, barco: 0.04, sub: 0.025, porta: 0.01,
+  dkam: 0.02, convoy: 0.04, barco: 0.04, sub: 0.025, porta: 0.01,
 };
 
 /** Provincias propias de la IA ordenadas por capacidad productiva (taller, aeropuerto, puerto). */
@@ -740,6 +766,8 @@ function _ai_recruit(game, cid, rng) {
         if ((owned[k] || 0) >= 2 || rng.random() > 0.4) continue;
       }
     }
+    if (k === 'convoy' && !atWar && game.turn < 10) continue;
+    if (k === 'convoy' && (owned[k] || 0) >= 1 + Math.floor(total / 8)) continue;
     if ((c.money - ut.cost) < (ut.cost > 250 ? 160 : 100)) continue;
     const pid = cands.find((x) => !recruit_check(game, cid, k, x));
     if (pid === undefined) continue;

@@ -255,11 +255,36 @@ export function warhead_of(game, d, want) {
 }
 const WARHEAD_MULT = { exp: 1.3, nuc: 2.5, bio: 2 };
 
+export const RADAR_RANGE = 2;      // provincias de alcance de detección del radar
+export const RADAR_FACTOR = 0.65;  // multiplicador de daño aéreo/misiles sobre zona cubierta
+
+/** Provincia con radar propio del defensor a RADAR_RANGE saltos o menos (o en el mismo país si no hay geografía). */
 function radar_of(game, p) {
   const pr = P(game);
+  let pid = null;
+  for (const k of Object.keys(pr)) if (pr[k] === p) { pid = k; break; }
+  if (pid !== null) {
+    try {
+      const adj = prov_geo().adj;
+      let frontier = [pid]; const seen = new Set([pid]);
+      for (let h = 0; h <= RADAR_RANGE; h++) {
+        const next = [];
+        for (const q of frontier) {
+          const pq = pr[q];
+          if (pq && pq.o === p.o && (pq.b.radar || 0) >= 1) return true;
+          for (const n of adj[q] || []) if (!seen.has(n)) { seen.add(n); next.push(n); }
+        }
+        frontier = next;
+      }
+      return false;
+    } catch (e) { /* cae al cálculo por país */ }
+  }
   for (const q of Object.values(pr)) if (q.c === p.c && q.o === p.o && (q.b.radar || 0) >= 1) return true;
   return false;
 }
+
+/** Cobertura de radar sobre una provincia (para la IA y la interfaz). */
+export function radar_covers(game, pid) { const p = P(game) && P(game)[pid]; return !!p && radar_of(game, p); }
 
 /** Daño base y modificadores (sin consumir nada). */
 export function strike_estimate(game, d, pid, oj) {
@@ -273,11 +298,11 @@ export function strike_estimate(game, d, pid, oj) {
   dmg *= soil_mods(kind, g && g.t).atk;
   const a = game.ext && game.ext.aero;
   if (a && a.decoys[pid] !== undefined && a.decoys[pid] >= game.turn - 1) dmg *= 0.8;
-  if (sp.cls !== 'art' || kind === 'misil') if (radar_of(game, p)) dmg *= 0.75;
+  if (sp.cls !== 'art' || kind === 'misil') if (radar_of(game, p)) dmg *= RADAR_FACTOR;
   return r1(dmg);
 }
 
-function do_strike(game, d, pid, rng, oj) {
+export function do_strike(game, d, pid, rng, oj) {
   const pr = P(game); const p = pr[pid];
   const kind = kind_of(d); const sp = spec(d);
   const g = prov_geo().byId[pid];
@@ -292,7 +317,7 @@ function do_strike(game, d, pid, rng, oj) {
   const defender = p.o;
   const air = sp.cls !== 'art' || kind === 'misil';
   if (air && radar_of(game, p)) {
-    dmg *= 0.75;
+    dmg *= RADAR_FACTOR;
     news(game, `El radar de ${cname(game, defender)} detecta ${kind === 'misil' ? 'misiles' : 'aviones'} de ${cname(game, d.owner)} sobre ${pname(pid)}.`, 'war');
     notes.push('el radar redujo el daño');
   }
@@ -324,7 +349,7 @@ function do_strike(game, d, pid, rng, oj) {
     if (t.location !== p.c || t.owner === d.owner || !at_war(game, d.owner, t.owner)) continue;
     const tk = kind_of(t); const ts = ROSTER[tk];
     if (onlyStatic && !ts.static) continue;
-    let f = dmg * 0.012 * lookup(sp.vs, tk) * lookup(ts.dmg, kind) * (t.st === 'carga' ? 2 : 1);
+    let f = dmg * 0.012 * lookup(sp.vs, tk) * lookup(ts.dmg, kind) * (t.st === 'carga' ? 2 : 1) * (tk === 'convoy' ? 2.5 : 1);
     if (f <= 0) continue;
     f = Math.min(0.6, f);
     t.troops *= 1 - f; t.tanks *= 1 - f; t.planes *= 1 - f;
@@ -505,7 +530,15 @@ export function turn(game, rng, lines) {
       const targets = strike_targets(game, d);
       if (!targets.length) continue;
       let best = null, bd = Infinity;
-      for (const t of targets) { const df = prov_defense(game, t); if (df < bd) { bd = df; best = t; } }
+      const flyer = is_flyer(d) || ['dexp', 'dkam', 'heli', 'bomb', 'bpes'].includes(kind_of(d));
+      for (const t of targets) {
+        let df = prov_defense(game, t);
+        // los convoyes son objetivo prioritario; el radar enemigo desanima a los aviones
+        const pt = P(game)[t];
+        if (game.divisions.some((x) => x.location === pt.c && x.owner === pt.o && x.kind === 'convoy')) df *= 0.4;
+        if (flyer && radar_of(game, pt)) df *= 1.3;
+        if (df < bd) { bd = df; best = t; }
+      }
       if (best === null) continue;
       const r = do_strike(game, d, best, rng, null);
       shots++;

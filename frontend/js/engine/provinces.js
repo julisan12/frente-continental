@@ -602,11 +602,13 @@ export function prov_yield(game, pid) {
   const pr = P(game); const p = pr && pr[pid];
   if (!p) return { money: 0, food: 0, fuel: 0, goods: 0, metal: 0 };
   let money = 0, food = 0, fuel = 0, goods = 0, metal = 0;
-  if (p.r === 'agro') food += 1.5;
-  if (p.r === 'petroleo' || p.r === 'gas') fuel += 2;
-  if (p.r === 'minerales' || p.r === 'cobre') metal += 1.5;
-  if (p.r === 'madera') goods += 0.5;
-  if (p.r) money += 1.5;
+  // estados (densidad 0): el recurso rinde por cada departamento agrupado, para no empobrecer la economia
+  const gp = prov_geo().byId[pid]; const k = (gp && gp.members && gp.members.length) || 1;
+  if (p.r === 'agro') food += 1.5 * k;
+  if (p.r === 'petroleo' || p.r === 'gas') fuel += 2 * k;
+  if (p.r === 'minerales' || p.r === 'cobre') metal += 1.5 * k;
+  if (p.r === 'madera') goods += 0.5 * k;
+  if (p.r) money += 1.5 * k;
   food += 1.2 * (p.b.granja || 0);
   fuel += 2.5 * (p.b.refineria || 0);
   metal += 2 * (p.b.mina || 0);

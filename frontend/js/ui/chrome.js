@@ -11,15 +11,15 @@ import { countTasks, countByScreen, goTo } from './tasks.js';
 
 const NAV = [
   ['map', 'map', 'Mapa'], ['country', 'flag', 'País'], ['economy', 'coins', 'Economía'],
-  ['army', 'shield', 'Ejército'], ['diplomacy', 'rings', 'Diplom.'], ['tasks', 'check', 'Por mi cuenta'], ['more', 'menu', 'Más'],
+  ['army', 'shield', 'Ejército'], ['research', 'flask', 'Investig.'], ['diplomacy', 'rings', 'Diplom.'], ['tasks', 'check', 'Por mi cuenta'], ['more', 'menu', 'Más'],
 ];
 
 const go = (screen) => setState({ screen });
 
 // Contador de la cabecera: icono + valor compacto; el nombre y la cifra exacta van en title/aria-label.
-function chip(ic, label, val, exact, screen, warn) {
+function chip(ic, label, val, exact, screen, warn, rc) {
   const full = label + ': ' + exact;
-  return h('button', { class: 'stat' + (warn ? ' warn' : ''), title: full, 'aria-label': full, onclick: () => (screen === 'more' ? goTo('more') : go(screen)) },
+  return h('button', { class: 'stat' + (warn ? ' warn' : '') + (rc ? ' rc rc-' + rc : ''), title: full, 'aria-label': full, onclick: () => (screen === 'more' ? goTo('more') : go(screen)) },
     icon(ic), h('span', { class: 'v' }, val));
 }
 
@@ -37,13 +37,13 @@ export function renderHeader(el) {
   const w = wordsOf(Math.round(dollars));
   const moneyExact = '$ ' + fmtNum(c.money * MONEY_SCALE) + ' M' + (w ? ' (' + w + ')' : '');
   const troops = totalTroops(g);
-  const chips = [chip('coins', 'Dinero', fmtCompact(c.money, { money: true }), moneyExact, 'economy')];
+  const chips = [chip('r_money', 'Dinero', fmtCompact(c.money, { money: true }), moneyExact, 'economy', false, 'money')];
   if (g.ext) {
     const stock = (g.ext.stock && g.ext.stock[me]) || {};
     const short = (g.ext.supply && g.ext.supply[me] && g.ext.supply[me].short) || {};
-    [['food', 'wheat', 'Alimentos'], ['fuel', 'fire', 'Combustible'], ['goods', 'box', 'Bienes'], ['metal', 'ingot', 'Metal']].forEach(([res, ic, name]) => {
+    [['food', 'r_food', 'Alimentos'], ['fuel', 'r_fuel', 'Combustible'], ['goods', 'r_goods', 'Bienes'], ['metal', 'r_metal', 'Metal']].forEach(([res, ic, name]) => {
       const v = stock[res] || 0;
-      chips.push(chip(ic, name, fmtCompact(v), fmtExact(v) + (short[res] > 0.05 ? ' · escasez' : ''), 'economy', short[res] > 0.05));
+      chips.push(chip(ic, name, fmtCompact(v) + ' t', fmtExact(v) + ' toneladas' + (short[res] > 0.05 ? ' · escasez' : ''), 'economy', short[res] > 0.05, res));
     });
   }
   chips.push(
@@ -83,7 +83,7 @@ export function renderNav(el) {
     if (counts[id] > 0) return [String(Math.min(counts[id], 9)), ' num'];
     return null;
   };
-  // Reutiliza los 7 botones: solo se actualizan atributos y la insignia (sin parpadeo ni saltos).
+  // Reutiliza los 8 botones: solo se actualizan atributos y la insignia (sin parpadeo ni saltos).
   if (el.children.length !== NAV.length) {
     el.replaceChildren(...NAV.map(([id, ic, label]) => h('button', { 'data-nav': id, 'aria-label': ({ tasks: 'Por mi cuenta', diplomacy: 'Diplomacia' })[id] || label, onclick: () => go(id) },
       icon(ic), h('span', { class: 'nl' + (id === 'tasks' ? ' nl2' : '') }, label))));

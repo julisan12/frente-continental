@@ -188,11 +188,32 @@ export function turnReport(report) {
   });
 }
 
+const VICTORY_NAMES = {
+  conquest: 'Conquista', economic: 'Dominio económico', diplomatic: 'Hegemonía diplomática', survival: 'Supervivencia',
+};
+
+/** Filas de progreso hacia cada victoria a partir de view.victory_progress. `main` resalta la lograda. */
+export function victoryRows(vp, main = null) {
+  if (!vp) return null;
+  const pct = (a, b) => Math.max(0, Math.min(100, b > 0 ? Math.round((a / b) * 100) : 0));
+  const row = (key, label, detail, p) => h('div', { class: 'vp-row' + (key === main ? ' main' : '') },
+    h('div', { class: 'vp-head' }, h('b', null, label), h('span', { class: 'muted' }, detail)),
+    h('div', { class: 'vp-bar' }, h('i', { style: 'width:' + p + '%' })));
+  const c = vp.conquest, e = vp.economic, d = vp.diplomatic, s = vp.survival;
+  return h('div', { class: 'vp-list' },
+    row('conquest', VICTORY_NAMES.conquest, c.own + ' / ' + c.target + ' territorios', pct(c.own, c.target)),
+    row('economic', VICTORY_NAMES.economic, 'PIB ' + e.mine + ' vs ' + e.best_rival + ' (x' + e.ratio + '), racha ' + e.streak + '/' + e.need, pct(e.streak, e.need)),
+    row('diplomatic', VICTORY_NAMES.diplomatic, d.allies + ' de ' + (d.allies + d.others) + ' aliados, racha ' + d.streak + '/' + d.need, pct(d.streak, d.need)),
+    row('survival', VICTORY_NAMES.survival, 'Turno ' + s.turn + ' / ' + s.max_turns + ', puesto ' + s.rank, pct(s.turn, s.max_turns)));
+}
+
 export function gameOver(game) {
   const won = game.result ? game.result === 'victory' : game.winner === game.player;
   const lost = game.result === 'defeat' || (!won && game.winner);
+  const vt = game.victory_type;
+  const vtName = vt && VICTORY_NAMES[vt] ? VICTORY_NAMES[vt] : null;
   let text;
-  if (won) text = 'Tu nación domina el continente.';
+  if (won) text = vtName ? 'Victoria por ' + vtName.toLowerCase() + '.' : 'Tu nación domina el continente.';
   else if (game.loss_reason) text = game.loss_reason;
   else if (game.winner) text = 'Ganador: ' + cname(game.winner) + '.';
   else text = 'La partida ha terminado.';
@@ -202,6 +223,7 @@ export function gameOver(game) {
       h('h2', null, won ? 'Victoria' : lost ? 'Derrota' : 'Fin de la partida'),
       h('p', null, text),
       !won && game.loss_reason && game.winner && !game.loss_reason.includes(cname(game.winner)) ? h('p', { class: 'muted small' }, 'Ganador: ' + cname(game.winner) + '.') : null,
+      victoryRows(game.victory_progress, won ? vt : null),
       h('div', { class: 'acts' },
         h('button', { class: 'btn', onclick: () => { m.close(); res(false); } }, 'Seguir viendo'),
         h('button', { class: 'btn primary', onclick: () => { m.close(); res(true); } }, 'Nueva partida')),

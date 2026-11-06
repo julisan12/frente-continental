@@ -4,7 +4,7 @@ import { h, svgEl, fmtNum, toast } from '../util.js';
 import { icon } from '../icons.js';
 import { getState, setState, eventChoice, cname } from '../state.js';
 import { getServer, setServer, health, baseUrl, isMock } from '../api.js';
-import { newGameFlow } from './modals.js';
+import { newGameFlow, victoryRows } from './modals.js';
 import { settingsForm } from './settings.js';
 import { lsGet, lsSet } from './sound.js';
 import { showTutorial } from './tutorial.js';
@@ -228,6 +228,7 @@ export function render(el) {
   else if (tab === 'game') {
     body = h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Partida'),
       g ? h('div', { class: 'muted small' }, `Turno ${g.turn}${g.max_turns ? '/' + g.max_turns : ''} · ${g.date}`) : null,
+      g && g.victory_progress ? h('div', { class: 'stack' }, h('h3', { class: 'tag-uc' }, 'Progreso hacia la victoria'), victoryRows(g.victory_progress)) : null,
       g && g.ranking && g.ranking.length ? h('div', { class: 'stack', style: { background: 'var(--panel2)', borderRadius: '8px', padding: '8px' } },
         h('h3', { class: 'tag-uc' }, 'Ranking'),
         g.ranking.map((r, i) => h('div', { class: 'small', style: { display: 'flex', justifyContent: 'space-between', color: r.id === g.player ? 'var(--brass)' : 'inherit' } }, h('span', null, `${i + 1}. ${r.name}`), h('span', null, String(r.score))))) : null,

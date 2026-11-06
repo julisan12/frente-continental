@@ -157,3 +157,11 @@ Tanda 4 – Mundo y victoria (módulo `engine/world.js`, `ui/world.js`, `css/ext
   y al tocar se abre la lista completa.
 - **Accidentes internacionales**: catástrofes en otros países con un modal de decisión (ayuda completa, parcial, mínima o no ayudar) que
   afecta a dinero, relaciones y prestigio. La IA decide sola cuando ayudar.
+
+## Interfaz: Ejército, País, Investigación y Victoria
+
+- **Ejército** (`ui/army.js` + `ui/army2.js`): cada división muestra nivel con barra de XP, mantenimiento diario (total del ejército arriba), estado de suministro (aviso si `unsup>=1`, «Hambre» si `>=2`), puntos navales restantes y detalle legible. Acciones: reequipar (con costo), entrenar, tierra quemada (bombarderos), patrullar (aire y submarinos), enviar a neutral (con aviso de tensión) y retirar a casa. Las formaciones permiten unir, dividir y renombrar.
+- **País**: Infraestructura (con selector de provincia para construir) e Investigación viven dentro de la pestaña País. La barra inferior tiene además un botón de Investigación con seis categorías (Militar, Diplomática, Recursos, Política interna, Infraestructura, Comercio); las vacías dicen «Próximamente».
+- **Barra superior**: suministros en toneladas («t») y cada recurso con su color e icono.
+- **Victoria**: la pantalla de fin de partida indica el tipo (conquista, económica, diplomática, supervivencia) y el progreso hacia cada una; la pestaña Más > Partida muestra el mismo progreso en vivo.
+- **Radar**: se construye desde Infraestructura (alcance 2, 130, frágil, nunca en frontera con otro país); la ficha explica las reglas.

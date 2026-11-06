@@ -6,6 +6,7 @@ import * as ST from '../state.js';
 import * as F from '../engine/features.js';
 import * as SUPPLY from '../engine/supply.js';
 import { confirmModal } from './modals.js';
+import * as PV from '../engine/provinces.js';
 import { prov_labc_level } from '../engine/provinces.js';
 import { getState, setState, player, sendOrder, saveBudget, detail, loadDetail } from '../state.js';
 
@@ -13,7 +14,7 @@ let tab = 'gestion';
 let budTimer = null;
 let draft = null;
 let draftGame = null; // id de la partida a la que pertenece draft
-const TABS = [['gestion', 'Gestión'], ['suministro', 'Suministro'], ['industria', 'Industria'], ['infra', 'Infraestructura'], ['presupuesto', 'Presupuesto'], ['estabilidad', 'Estabilidad'], ['politica', 'Política'], ['investigacion', 'Investigación']];
+const TABS = [['gestion', 'Gestión'], ['suministro', 'Suministro'], ['industria', 'Industria'], ['presupuesto', 'Presupuesto'], ['estabilidad', 'Estabilidad'], ['politica', 'Política']];
 const SECTOR = { industry: 'Industria', agriculture: 'Agricultura', services: 'Servicios' };
 const BUD = [['army', 'Ejército'], ['social', 'Social'], ['infrastructure', 'Infraestructura'], ['industry', 'Industria']];
 
@@ -108,10 +109,65 @@ function industria(c, d) {
     h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Proyectos'), projects(['factory'])));
 }
 
-function infra(c) {
+let infraPid = null;
+let infraKind = null;
+
+// Selector de provincia + construcción de edificios de la pestaña Infraestructura de País.
+function provBuilder(c, rerender) {
+  const game = getState().game;
+  const me = player();
+  let pids = [];
+  try { pids = Object.keys(game.ext.prov).filter((pid) => game.ext.prov[pid].o === me); } catch (er) { pids = []; }
+  if (!pids.length) return h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Construir en provincias'), h('div', { class: 'muted small' }, 'No tienes provincias.'));
+  const geo = PV.prov_geo().byId;
+  const nameOf = (pid) => (geo[pid] && geo[pid].n) || pid;
+  if (!infraPid || !pids.includes(infraPid)) infraPid = pids.find((pid) => game.ext.prov[pid].cap) || pids[0];
+  const s = game.ext.prov[infraPid];
+  const sel = h('select', { class: 'prov-sel', 'aria-label': 'Provincia donde construir', onchange: (e) => { infraPid = e.target.value; infraKind = null; rerender(); } },
+    pids.slice().sort((a, b) => String(nameOf(a)).localeCompare(String(nameOf(b)), 'es')).map((pid) =>
+      h('option', { value: pid, selected: pid === infraPid }, nameOf(pid) + (game.ext.prov[pid].cap ? ' (capital)' : ''))));
+  const body = h('div', { class: 'stack' });
+  for (const g of Object.keys(PV.BUILD_GROUPS)) {
+    const kinds = PV.BUILD_KEYS.filter((k) => PV.BUILD[k].group === g);
+    body.append(h('div', { class: 'muted small tag-uc' }, PV.BUILD_GROUPS[g]),
+      h('div', { class: 'pb-grid' }, kinds.map((k) => {
+        const B = PV.BUILD[k];
+        const l = (s.b && s.b[k]) || 0;
+        const why = PV.build_check(game, me, infraPid, k) || '';
+        const cost = PV.build_cost(s, k);
+        const nm = l >= B.max ? PV.build_name(k, l) : PV.build_name(k, l + 1);
+        return h('button', { class: 'pb-b' + (why ? ' blocked' : '') + (infraKind === k ? ' sel' : ''), title: why || B.desc || nm,
+          onclick: () => { infraKind = infraKind === k ? null : k; rerender(); } },
+          icon(B.icon || 'crate'), h('b', null, nm), h('span', { class: 'muted small' }, l + '/' + B.max),
+          h('span', { class: 'small' + (why ? ' down' : '') }, why || (fmtMoney(cost) + ' · ' + B.turns + ' t')));
+      })));
+  }
+  const det = infraKind && PV.BUILD[infraKind] ? (() => {
+    const B = PV.BUILD[infraKind];
+    const why = PV.build_check(game, me, infraPid, infraKind) || '';
+    return h('div', { class: 'panel stack' }, h('b', null, B.name + ' en ' + nameOf(infraPid)),
+      B.desc ? h('div', { class: 'muted small' }, B.desc) : null,
+      infraKind === 'radar' ? h('ul', { class: 'radar-help small' },
+        h('li', null, 'Alcance: 2 provincias a la redonda (revela unidades y reduce el daño aéreo).'),
+        h('li', null, 'Caro (' + fmtMoney(PV.build_cost(s, 'radar')) + ') y frágil: pierde un nivel por turno si es bombardeado.'),
+        h('li', null, 'Solo en el interior: nunca en una provincia limítrofe con otro país.'),
+        h('li', null, 'Bloquea fronteras: lo que cubre el radar se ve aunque no haya tropas.')) : null,
+      why ? h('div', { class: 'small down' }, why) : null,
+      h('button', { class: 'btn block', disabled: !!why, onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        const ok = await ST.extAction({ action: 'prov_build', pid: infraPid, kind: infraKind });
+        if (ok) infraKind = null;
+        rerender();
+      } }, icon('factory'), 'Construir (' + fmtMoney(PV.build_cost(s, infraKind)) + ')'));
+  })() : null;
+  return h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Construir en provincias'), sel, body, det);
+}
+
+export function infraPanel(c, rerender) {
   return h('div', { class: 'stack' },
     h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Infraestructura ' + Math.round(c.infrastructure || 0) + '%'),
       h('div', { class: 'bar' }, h('i', { style: { width: clamp(c.infrastructure || 0, 0, 100) + '%' } }))),
+    provBuilder(c, rerender || (() => {})),
     h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'Nuevos proyectos'),
       ['road', 'port', 'school', 'barracks'].map(projBtn)),
     h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, 'En curso'), projects(['road', 'port', 'school', 'barracks'])));
@@ -238,7 +294,7 @@ function politica() {
   return h('div', { class: 'stack' }, taxes, laws, focus, mk);
 }
 
-function investigacion() {
+export function investigacion(cats) {
   const e = ext();
   if (!e) return noExt();
   const me = player();
@@ -265,7 +321,7 @@ function investigacion() {
     h('button', { class: 'btn block', disabled: lab >= 3, onclick: async () => {
       if (await confirmModal({ title: 'Mejorar laboratorio', text: '¿Invertir en mejorar el laboratorio al nivel ' + (lab + 1) + '? Aumenta los puntos de investigación por turno.', okText: 'Mejorar' })) act({ action: 'lab' });
     } }, icon('school'), lab >= 3 ? 'Nivel máximo' : 'Mejorar laboratorio'));
-  const tree = (F.BRANCHES || BRANCHES).map(([bk, bl]) => {
+  const tree = (F.BRANCHES || BRANCHES).filter(([bk]) => !cats || cats.includes(bk)).map(([bk, bl]) => {
     const list = TECHS.filter((t) => t.branch === bk);
     if (!list.length) return null;
     return h('div', { class: 'panel stack' }, h('h3', { class: 'tag-uc' }, bl),
@@ -402,7 +458,7 @@ export function render(el) {
   if (tab !== 'presupuesto' || draftGame !== S.game.id) draft = null;
   draftGame = S.game.id;
   const tabs = tabStrip('economy', TABS, tab, (id) => { tab = id; render(el); });
-  const body = { gestion, suministro, industria, infra, presupuesto, estabilidad, politica, investigacion }[tab];
+  const body = { gestion, suministro, industria, presupuesto, estabilidad, politica }[tab];
   el.append(h('h2', null, 'Economía'), tabs, h('div', { class: 'stack' }, body(c, d)));
 }
 void setState; void toast;

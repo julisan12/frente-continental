@@ -13,6 +13,7 @@ import { army_cap, army_used } from '../engine/dipext.js';
 import * as C from '../engine/constants.js';
 import { TERRAIN } from '../data/provinces.js';
 import { artUnit } from './art.js';
+import * as X from './army2.js';
 import { openUnitSheet, dominantTerrain, RES_NAMES } from './unitsheet.js';
 
 let selId = null;
@@ -66,7 +67,8 @@ function divCard(div) {
       + (div.tanks ? ` · ${fmtNum(div.tanks)} tanques` : '') + (div.planes ? ` · ${fmtNum(div.planes)} aviones` : '')),
     h('div', { class: 'row small', style: { gap: '6px', alignItems: 'center' } }, h('span', { class: 'muted' }, 'Vida'),
       h('div', { class: 'bar grow ' + (vida < 30 ? 'bad' : vida < 60 ? 'warn' : '') }, h('i', { style: { width: vida + '%' } })), h('b', null, vida + '%')),
-    div.org != null ? h('div', { class: 'bar ' + (div.org < 30 ? 'bad' : div.org < 55 ? 'warn' : '') }, h('i', { style: { width: Math.max(0, Math.min(100, div.org)) + '%' } })) : null);
+    div.org != null ? h('div', { class: 'bar ' + (div.org < 30 ? 'bad' : div.org < 55 ? 'warn' : '') }, h('i', { style: { width: Math.max(0, Math.min(100, div.org)) + '%' } })) : null,
+    X.cardExtras(div));
 }
 
 function actions(div) {
@@ -89,6 +91,7 @@ function actions(div) {
       },
     }, icon(ICON[t]), LABEL[t]));
   });
+  root.append(X.actions(div, rerender));
   return root;
 }
 
@@ -326,10 +329,11 @@ function formationsPanel() {
     const members = divs.filter((d) => fm.divs.includes(d.id));
     const loc = members.length ? members[0].location : '?';
     root.append(h('div', { class: 'item stack' },
-      h('div', { class: 'row' }, icon('people'), h('b', { class: 'grow' }, fm.name),
+      h('div', { class: 'row' }, icon('squad'), h('b', { class: 'grow' }, fm.name),
         h('button', { class: 'iconbtn', 'aria-label': 'Disolver', onclick: async () => { await extAction({ action: 'form_dissolve', form_id: fm.id }); rerender(); } }, icon('close'))),
       h('div', { class: 'muted small' }, `${cname(loc)} · ${members.length} división${members.length === 1 ? '' : 'es'}`),
       h('div', { class: 'muted small' }, members.map((d) => d.name).join(', ')),
+      X.formInfo(fm), X.formControls(fm, rerender),
       !formAction || formTarget !== fm.id ? h('div', { class: 'row', style: { gap: '4px', marginTop: '4px' } },
         h('button', { class: 'btn small', onclick: () => { formTarget = fm.id; formAction = 'move'; rerender(); } }, icon('play'), 'Mover'),
         h('button', { class: 'btn small danger', onclick: () => { formTarget = fm.id; formAction = 'attack'; rerender(); } }, icon('swords'), 'Atacar'),
@@ -410,7 +414,8 @@ function capacityBar(me) {
   const p = pct(used, cap);
   return h('div', { class: 'cap-box' },
     h('div', { class: 'row' }, h('span', { class: 'muted small grow' }, 'Capacidad'), h('b', null, `${fmtNum(used)} / ${fmtNum(cap)} k`)),
-    h('div', { class: 'bar ' + (p >= 100 ? 'bad' : p >= 85 ? 'warn' : '') }, h('i', { style: { width: p + '%' } })));
+    h('div', { class: 'bar ' + (p >= 100 ? 'bad' : p >= 85 ? 'warn' : '') }, h('i', { style: { width: p + '%' } })),
+    h('div', { class: 'row' }, h('span', { class: 'muted small grow' }, 'Mantenimiento del ejército'), h('b', null, X.upkeepText(X.armyUpkeep()))));
 }
 
 export function render(el) {

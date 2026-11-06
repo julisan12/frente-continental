@@ -186,3 +186,10 @@ Acciones (`ext_action`, campo `action`):
 Claves de estado en divisiones: `xp`, `lv` (niveles 0-5), `scorched`, `unsup` (turnos sin suministro; >2 daña HP y moral), `patrol`, `home`, `foreign`, `mp_used` (puntos de movimiento navales), `up0` (nivel de mejora al crearse). Otras: `ext.forms[cid]`, `ext.prodq` (con retardos por tipo; exploradores instantáneos, máx. 1 por provincia y turno), radar en `ext.prov[pid].b.radar` (alcance 2, factor de interceptación 0.65).
 
 Exportaciones de `army2.js`: `group_type`, `squad_of`, `form_type`, `level_of`, `gain_xp`, `mods_of`, `upkeep_of`, `tension_of`, `retrofit_cost`, `order_check`, `on_move`, `MAX_LEVEL`, `SCORCHED`. `aero.js` exporta además `do_strike` y `radar_covers`. Prueba de humo: `node tools/sim_ext.mjs 40`.
+
+## Interfaz de Ejército 2 y Victoria
+
+- `frontend/js/ui/army2.js` expone la UI del motor `engine/army2.js`: `cardExtras`, `detail`, `actions`, `formInfo`, `formControls`, `armyUpkeep`, `upkeepText`. `army.js` solo los integra.
+- `ui/research.js` agrupa `features.BRANCHES` en 6 categorías; `economy.js` exporta `investigacion(ramas)` e `infraPanel` (con `provBuilder`) para País.
+- `ui/modals.js` exporta `victoryRows(view.victory_progress, tipo)`, usado por `gameOver` y por Más > Partida. Solo lee la vista: no cambia el motor ni la paridad.
+- Estilos nuevos en `css/ext-army.css` (`.army-*`, `.lv-pill`, `.vp-*`) y `css/ext-tasks.css`.

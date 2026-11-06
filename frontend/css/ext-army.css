@@ -67,3 +67,25 @@
 .us-soilrow.here { border-color: var(--gold, #d3b160); background: rgba(211, 177, 96, .12); }
 .us-soilhead { border: 0; min-height: 0; }
 .us-match { margin-top: 4px; }
+
+/* Ejército 2: nivel, XP, mantenimiento, suministro, escuadras */
+.army-x { display: flex; flex-direction: column; gap: 4px; }
+.bar.xp > i { background: var(--gold, #d3b160); }
+.lv-pill { gap: 4px; }
+.lv-pill.lv-3, .lv-pill.lv-4 { color: var(--olive-l, #a3b366); }
+.lv-pill.lv-5 { color: var(--gold, #d3b160); }
+.army-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.army-btns .btn.on { outline: 2px solid var(--gold, #d3b160); }
+.army-acts { border-top: 1px solid rgba(184, 151, 90, .25); padding-top: 8px; margin-top: 4px; display: flex; flex-direction: column; gap: 6px; }
+.army-detail { display: grid; gap: 2px; }
+.army-forms { border-top: 1px dashed rgba(184, 151, 90, .25); padding-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+
+/* Victoria: progreso */
+.vp-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; text-align: left; }
+.vp-row { display: flex; flex-direction: column; gap: 3px; }
+.vp-row.main b { color: var(--gold, #d3b160); }
+.vp-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.vp-bar { height: 8px; border-radius: 4px; background: rgba(184, 151, 90, .2); overflow: hidden; }
+.vp-bar > i { display: block; height: 100%; background: var(--olive-l, #a3b366); }
+.vp-row.main .vp-bar > i { background: var(--gold, #d3b160); }
+.radar-help { border: 1px solid rgba(184, 151, 90, .25); border-radius: 8px; padding: 6px 8px; font-size: 13px; }
